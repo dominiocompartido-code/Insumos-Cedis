@@ -99,6 +99,9 @@ tr.tot td{font-weight:700;background:var(--surface-2)}
 .chip.Confirmada{background:var(--st-conf-bg);color:var(--st-conf)}
 .chip.Entregada{background:var(--st-ent-bg);color:var(--st-ent)}
 .chip.Rechazada,.chip.alerta{background:var(--st-rech-bg);color:var(--st-rech)}
+.ingreso-estado{display:flex;gap:12px;align-items:center;justify-content:space-between;flex-wrap:wrap;padding:12px 14px;border-radius:12px;border:1px solid var(--line);background:var(--surface-2)}
+.ingreso-estado.on{border-color:#9fd9b8;background:#eefaf3}
+.bloqueo{display:flex;justify-content:center}.bloqueo-in{max-width:440px;text-align:center;padding:28px 8px}.bloqueo-ico{font-size:40px;line-height:1;margin-bottom:8px}
 .pleg{background:none;border:0;padding:2px;margin-left:4px;vertical-align:middle;color:var(--muted,#8a94a0);opacity:.45;cursor:pointer;border-radius:6px;line-height:0;transition:opacity .15s,transform .2s}
 .pleg:hover,.pleg:focus-visible{opacity:1;background:rgba(0,0,0,.05)}
 .plegado .pleg{transform:rotate(-90deg)}
@@ -478,6 +481,11 @@ main{margin:0;max-width:1240px;width:100%}
   </form>
 </div></div>
 
+<div class="modal" id="mCorreos" hidden><div class="modal-card" style="max-width:820px">
+  <div class="modal-head"><h3>Subir usuarios de salas</h3><button class="x" data-close="mCorreos" aria-label="Cerrar">&times;</button></div>
+  <div id="coBody" class="grid" style="gap:10px"></div>
+  <div class="row right"><button class="btn" data-close="mCorreos">Cancelar</button><button class="btn btn-primary" id="coAplicar">Asignar</button></div>
+</div></div>
 <div class="modal" id="mTrasp" hidden><div class="modal-card" style="max-width:860px">
   <div class="modal-head"><h3>Subir números de traspaso</h3><button class="x" data-close="mTrasp" aria-label="Cerrar">&times;</button></div>
   <div id="trBody" class="grid" style="gap:10px"></div>

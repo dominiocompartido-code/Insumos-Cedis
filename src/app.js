@@ -4,6 +4,7 @@ const H = 3600e3;
 let sb = null, sesion = null, rol = {admin:false, grupos:[]};
 let G = {}, GL = [], U = {}, UL = [], M = {}, ML = [], pedidos = [];
 let listo = false, tab = null, tabPedida = null;
+let EXIGIR = false;
 let unidadSel = null, borrador = [], solicitanteNom = '', esApertura = false, fechaAp = '';
 
 // ---------- utilidades ----------
@@ -82,7 +83,7 @@ const fBs = n => 'Bs ' + (+n || 0).toLocaleString('es-BO', {minimumFractionDigit
 const precioDe = (p, cod) => { const v = p && p.precios && p.precios[cod] != null ? +p.precios[cod] : P[cod]; return v != null && !isNaN(v) ? v : null; };
 function valorPedido(p, entregado){ const its = entregado && p.items_entregados ? p.items_entregados : p.items; let total = 0, sin = 0; its.forEach(i => { const v = precioDe(p, i.codigo); if(v == null){ if(+i.cantidad) sin++; } else total += v * (+i.cantidad || 0); }); return {total, sin}; }
 async function cargarBase(){
-  const kitP = sb.from('config').select('*').then(r => { const k = (r.data || []).find(x => x.clave === 'kit_apertura'); KIT = k ? k.valor || [] : []; }, () => {});
+  const kitP = sb.from('config').select('*').then(r => { const k = (r.data || []).find(x => x.clave === 'kit_apertura'); KIT = k ? k.valor || [] : []; EXIGIR = (r.data || []).some(x => x.clave === 'exigir_ingreso' && x.valor === true); }, () => {});
   const [g, u, m] = await Promise.all([
     sb.from('grupos').select(rol.admin ? '*' : 'id,nombre,tipo,aprobador,orden').order('orden'),
     sb.from('unidades').select('*'),
@@ -144,6 +145,13 @@ $('btnMenu').addEventListener('click', () => {
 $('sideFondo').addEventListener('click', cerrarMenu);
 const ajustarAltoHdr = () => { const h = document.querySelector('header.top')?.offsetHeight || 62; document.documentElement.style.setProperty('--hdr-h', h + 'px'); };
 addEventListener('resize', ajustarAltoHdr); setTimeout(ajustarAltoHdr, 0); setTimeout(ajustarAltoHdr, 800);
+function vBloqueo(){
+  if(!EXIGIR) return '';
+  if(!sesion) return `<section class="panel bloqueo"><div class="bloqueo-in"><div class="bloqueo-ico">🔐</div><h2>Ingrese con su usuario</h2><p class="sub">Para enviar o ver solicitudes de insumos, ingrese con el correo y la contraseña de su sala o área.</p><button class="btn btn-primary" data-ir-login="1">Ingresar</button><p class="sub" style="margin-top:14px">¿No tiene usuario? Pídalo a Logística CEDIS.</p></div></section>`;
+  if(!rol.admin && !rol.grupos.length && !salaUsuario()) return `<section class="panel bloqueo"><div class="bloqueo-in"><div class="bloqueo-ico">⏳</div><h2>Su usuario no está vinculado a una sala</h2><p class="sub">Ingresó como <strong>${esc(sesion.user?.email || '')}</strong>, pero todavía no está asignado a ninguna sucursal o área. Comuníquese con Logística CEDIS.</p><button class="btn" data-ir-login="1">Salir</button></div></section>`;
+  return '';
+}
+document.addEventListener('click', e => { if(e.target.closest?.('[data-ir-login]')) $('btnLogin').click(); });
 function render(){
   if(!listo) return;
   const ts = tabsDisponibles(); if(!tab || !planoTabs(ts).some(t => t[0] === tab)) tab = ts[0][0];
@@ -156,6 +164,7 @@ function render(){
       (subAbierto ? sub.map(([sid, sl], k) => `<button role="tab" class="sub${k === 0 ? ' sub-ini' : ''}${k === sub.length - 1 ? ' sub-fin' : ''}" data-tab="${sid}" aria-selected="${tab === sid}">${sid === 'tablero' ? 'Resumen' : sl}${sid !== 'tablero' ? badge(sid, c[sid]) : ''}</button>`).join('') : '')
     : `<button role="tab" data-tab="${id}" aria-selected="${tab === id}"><span class="ico">${ICO[id] || '•'}</span>${l}${badge(id, c[id])}</button>`).join('');
   $('subtabs').hidden = true; $('subtabs').innerHTML = '';
+  const bloqueo = vBloqueo(); if(bloqueo){ $('tabs').innerHTML = ''; $('main').innerHTML = bloqueo; actualizarCampana(); return; }
   const V = {solicitar:vSolicitar, seguimiento:vSeguimiento, materiales:vMateriales, bandeja:vBandeja, grupo:vGrupo, tablero:vTablero, entregar:vEntregar, preparacion:vPreparacion, cobertura:vCobertura, todos:vTodos, config:vConfig};
   const foco = document.activeElement?.id, pos = document.activeElement?.selectionStart;
   $('main').innerHTML = V[tab]();
@@ -223,7 +232,7 @@ document.addEventListener('mousedown', e => { if(e.target.closest('.combo-lista,
 async function elegirUnidad(id){
   setUnidad(id);
   const u = U[id];
-  if(tab !== 'solicitar' || !u || u.tipo !== 'Sucursal' || rol.admin || rol.grupos.length || salaEquipo() || store.get('fch_equipo_compartido') === '1') return;
+  if(tab !== 'solicitar' || !u || u.tipo !== 'Sucursal' || rol.admin || rol.grupos.length || sesion || EXIGIR || salaEquipo() || store.get('fch_equipo_compartido') === '1') return;
   const si = await confirmar(`<div class="conf-envio"><span class="sub" style="margin:0">¿Este celular o computadora lo usa solo</span><b>${esc(u.nombre)}</b></div><p class="sub" style="margin:8px 0 0">Si responde que sí, la app se abrirá siempre con esta sucursal elegida y no se podrá cambiar por error. Si lo usan varias salas, responda "No, lo usan varias".</p>`, {html:true, titulo:'¿Equipo de esta sala?', si:'Sí, solo esta sala', no:'No, lo usan varias', tono:'btn-primary'});
   if(si){ store.set('fch_sala_equipo', id); toast(`Equipo vinculado a ${u.nombre}.`); } else store.set('fch_equipo_compartido', '1');
   render();
@@ -414,9 +423,10 @@ async function anularPedido(id, btn){
 // ---------- vista: seguimiento ----------
 let segTodas = false;
 function vSeguimiento(){
+  if(salaUsuario()) unidadSel = salaUsuario();
   const u = unidadSel && U[unidadSel];
   let h = (u && pedidos.some(p => p.unidad_id === u.id) ? bannerPush() : '') + (u && !rol.admin && !rol.grupos.length ? bloqueAvisos() : '') + `<section class="panel"><div class="panel-head"><div><h2>Seguimiento de solicitudes</h2><p class="sub">Vea en qué paso está cada solicitud y si se ajustó algo al confirmarla.</p></div></div>
-    <label class="f">Sucursal o área${selectorUnidad('segUnidad', unidadSel)}</label>`;
+    ${salaUsuario() ? '' : `<label class="f">Sucursal o área${selectorUnidad('segUnidad', unidadSel)}</label>`}`;
   if(!u) return h + '<div class="notice info">Elija su sucursal o área para ver sus solicitudes.</div></section>';
   const l = pedidos.concat(anuladas).filter(p => p.unidad_id === u.id).sort((a,b) => b.ts - a.ts);
   return h + tabla(segTodas ? l : l.slice(0, 20), ['codigo','enviada','items','estado','avance','anular'], 'Esta unidad todavía no envió solicitudes.') +
@@ -435,7 +445,7 @@ function tabla(lista, cols, vacio, conSel){
     valor: ['Valor', p => { const v = valorPedido(p, p.estado === 'Entregada'); return `<td class="num" style="white-space:nowrap">${v.total ? fBs(v.total) : '–'}${v.sin ? `<div class="sub" style="margin:0" title="Insumos sin precio cargado">${v.sin} sin precio</div>` : ''}</td>`; }],
     estado: ['Estado', p => `<td>${chip(p.estado)}${p.items_original ? ' <span class="chip ajuste">ajustada</span>' : ''}${p.items_entregados ? ' <span class="chip alerta">entrega parcial</span>' : ''}${p.tipo === 'Apertura' ? ` <span class="chip apertura">Apertura${p.fecha_apertura && p.estado !== 'Entregada' ? ' · ' + esc(txtAbre(p.fecha_apertura)) : ''}</span>` : ''}${tarde(p) ? ' <span class="chip">fuera de plazo</span>' : ''}${p.estado === 'Enviada' && horas(Date.now() - p.ts) > 48 ? ' <span class="chip alerta">+2 días</span>' : ''}</td>`],
     traspaso: ['N° traspaso', p => !usaTraspaso(p) ? '<td class="sub">No aplica</td>' : rol.admin && p.estado === 'Confirmada' ? `<td class="td-trasp"><input class="trasp-in" data-trasp="${esc(p.id)}" value="${esc(p.nro_traspaso || '')}" maxlength="40" placeholder="Escriba…" aria-label="Número de traspaso de ${esc(p.codigo)}"></td>` : `<td class="mono">${esc(p.nro_traspaso || '–')}</td>`],
-    anular: ['', p => `<td class="num">${p.estado === 'Enviada' && (claves[p.id] || rol.admin) ? `<button class="btn btn-sm btn-danger" data-anular="${esc(p.id)}">Anular</button>` : ''}</td>`],
+    anular: ['', p => `<td class="num">${p.estado === 'Enviada' && (claves[p.id] || rol.admin || (sesion && (rol.unidad === p.unidad_id || rol.grupos.includes(U[p.unidad_id]?.grupo_id)))) ? `<button class="btn btn-sm btn-danger" data-anular="${esc(p.id)}">Anular</button>` : ''}</td>`],
     avance: ['Último avance', p => `<td class="sub">${p.estado === 'Anulada' ? 'Anulada ' + fFH(p.anulado_ts) : p.entregado_ts ? 'Entregada ' + fFH(p.entregado_ts) + (p.nro_traspaso ? ' · Traspaso ' + esc(p.nro_traspaso) : '') : p.confirmado_ts ? (p.estado === 'Rechazada' ? 'Rechazada ' : 'Confirmada ') + fFH(p.confirmado_ts) : 'Esperando confirmación'}</td>`],
   };
   if(verPrecios() && cols.includes('items') && !cols.includes('valor')) cols = cols.flatMap(c => c === 'items' ? ['items','valor'] : [c]);
@@ -598,11 +608,89 @@ const plegBtn = k => `<button type="button" class="pleg" data-pleg="${k}" aria-e
 document.addEventListener('click', e => { const b = e.target.closest?.('[data-pleg]'); if(!b) return; const k = b.dataset.pleg; pleg[k] = !pleg[k];
   try{ localStorage.setItem('fch_pleg', JSON.stringify(pleg)); }catch(e){}
   const sec = b.closest('section'); sec.classList.toggle('plegado', pleg[k]); b.setAttribute('aria-expanded', !pleg[k]); b.title = pleg[k] ? 'Mostrar' : 'Ocultar'; });
+// ---------- ingreso de salas (usuarios por correo) ----------
+function vIngreso(){
+  const act = UL.filter(u => u.activa), con = act.filter(u => u.correo).length, falta = act.length - con;
+  return `<section class="panel${plegCls('ingreso')}"><div class="panel-head"><div><h2>Usuarios de salas y áreas ${plegBtn('ingreso')}</h2>
+    <p class="sub">${con} de ${act.length} salas y áreas tienen usuario${falta ? ` · <span class="chip alerta">${falta} sin usuario</span>` : ' · <span class="chip Entregada">todas</span>'}</p></div>
+    <div class="row"><button class="btn btn-sm" id="btnPlantCorreos">⬇ Plantilla de usuarios</button><button class="btn btn-sm btn-primary" id="btnSubirCorreos">⬆ Subir usuarios (Excel)</button><input type="file" id="fileCorreos" accept=".xlsx,.xls,.csv" hidden></div></div>
+    <div class="ingreso-estado ${EXIGIR ? 'on' : ''}"><div><strong>Ingreso obligatorio: ${EXIGIR ? 'activado' : 'desactivado'}</strong>
+      <p class="sub" style="margin:2px 0 0">${EXIGIR ? 'Solo se puede enviar y ver solicitudes ingresando con usuario. Cada solicitud queda firmada con el correo de quien la envió.' : 'Hoy cualquiera con el enlace puede enviar solicitudes sin ingresar. Actívelo cuando las salas ya tengan su usuario creado en Supabase y vinculado aquí.'}</p></div>
+      <button class="btn ${EXIGIR ? '' : 'btn-primary'}" id="btnExigir">${EXIGIR ? 'Desactivar' : 'Activar ingreso obligatorio'}</button></div>
+    <p class="sub" style="margin:0">Pasos: 1) cree cada usuario en Supabase → Authentication → Users (marque <em>Auto Confirm User</em>); 2) descargue la plantilla, complete la columna Correo y súbala aquí. También puede asignarlo uno por uno con <strong>Editar</strong> en la lista de salas.</p></section>`;
+}
+async function cambiarExigir(btn){
+  const nuevo = !EXIGIR;
+  const act = UL.filter(u => u.activa), falta = act.filter(u => !u.correo).length;
+  const ok = await confirmar(nuevo ? `${falta ? `<p><strong>${falta} salas o áreas todavía no tienen usuario</strong> y no podrán enviar solicitudes hasta que se los asigne.</p>` : ''}<p>Desde ahora, quien no ingrese con su usuario no podrá enviar ni ver solicitudes. ¿Activar?</p>` : '<p>Cualquiera con el enlace podrá volver a enviar solicitudes sin ingresar. ¿Desactivar el ingreso obligatorio?</p>', {html:true, titulo: nuevo ? 'Activar ingreso obligatorio' : 'Desactivar ingreso obligatorio', si: nuevo ? 'Sí, activar' : 'Sí, desactivar', tono: nuevo ? 'btn-primary' : 'btn-danger'});
+  if(!ok) return;
+  btn.disabled = true; const {error} = await sb.rpc('fijar_exigir_ingreso', {p_valor:nuevo}); btn.disabled = false;
+  if(error){ toast('No se pudo cambiar: ' + errMsg(error)); return; }
+  EXIGIR = nuevo; toast(nuevo ? 'Ingreso obligatorio activado.' : 'Ingreso obligatorio desactivado.'); render();
+}
+function plantillaCorreos(){
+  const l = UL.filter(u => u.activa).sort((a,b) => (G[a.grupo_id]?.nombre || '').localeCompare(G[b.grupo_id]?.nombre || '', 'es') || a.nombre.localeCompare(b.nombre, 'es'));
+  const W = XL.libro(), h = W.hoja('Usuarios'), cab = {b:true, sz:10, color:'FFFFFFFF', fill:'FF1F3864', h:'center', v:'center', wrap:true, bt:'thin', bb:'thin', bl:'thin', br:'thin'};
+  ['Cód. sala','Sala / área','Tipo','Grupo','Correo'].forEach((t, c) => h.set(0, c, t, cab));
+  [11,40,15,30,38].forEach((w, c) => h.anchos[c] = w);
+  l.forEach((u, r) => { const s = (hh, ex = {}) => ({sz:10, h:hh, v:'center', bt:'thin', bb:'thin', bl:'thin', br:'thin', ...ex});
+    h.set(r + 1, 0, u.codigo_sala || '', s('center')); h.set(r + 1, 1, u.nombre, s('left')); h.set(r + 1, 2, u.tipo || '', s('left')); h.set(r + 1, 3, G[u.grupo_id]?.nombre || '', s('left')); h.set(r + 1, 4, u.correo || '', s('left', {fill:'FFFFF2CC'})); });
+  h.freeze = 1; h.filtro = `A1:E${l.length + 1}`;
+  descargar(W.generar(), `Usuarios_salas_${hoyISO()}.xlsx`);
+}
+let impCo = null;
+const correoOk = c => /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(c);
+async function leerCorreos(file){
+  try{
+    await cargarLibXLSX();
+    const wb = XLSX.read(await file.arrayBuffer(), {type:'array'}), ws = wb.Sheets[wb.SheetNames[0]];
+    const filas = XLSX.utils.sheet_to_json(ws, {header:1, raw:false, defval:''}).filter(f => f.some(c => String(c).trim()));
+    let hi = filas.findIndex(f => f.some(c => /correo|mail/i.test(normTxt(String(c)))));
+    if(hi < 0) hi = 0;
+    const cab = filas[hi].map(c => normTxt(String(c))), datos = filas.slice(hi + 1);
+    let cc = cab.findIndex(t => /correo|mail/.test(t)); if(cc < 0) cc = filas[0].findIndex((_, i) => datos.some(f => String(f[i]).includes('@')));
+    const cs = cab.findIndex(t => /cod/.test(t)), cn = cab.findIndex(t => /sala|area|sucursal|nombre/.test(t) && !/cod/.test(t));
+    if(cc < 0 || (cs < 0 && cn < 0)){ toast('No encontré las columnas de sala y correo. Use la plantilla.'); return; }
+    const vistos = {};
+    impCo = datos.map(f => { const correo = String(f[cc] || '').trim().toLowerCase(), cod = cs >= 0 ? normCod(f[cs]) : '', nom = cn >= 0 ? String(f[cn] || '').trim() : '';
+      if(!correo) return null;
+      let u = cod ? UL.find(x => x.codigo_sala && normCod(x.codigo_sala) === cod) : null;
+      if(!u && nom) u = UL.find(x => normTxt(x.nombre) === normTxt(nom));
+      let est = !u ? 'nosala' : !correoOk(correo) ? 'malo' : (u.correo || '') === correo ? 'igual' : 'ok';
+      if(est === 'ok' || est === 'igual'){ if(vistos[correo] && vistos[correo] !== u.id) est = 'dup'; vistos[correo] = u.id; }
+      return {u, correo, ref: nom || cod, est}; }).filter(Boolean);
+    // correo ya usado por otra sala que no se cambia en este archivo
+    impCo.forEach(x => { if(x.est === 'ok'){ const otra = UL.find(y => y.id !== x.u.id && y.correo === x.correo); if(otra && !impCo.some(z => z.u && z.u.id === otra.id && z.correo !== x.correo)) x.est = 'otra', x.otra = otra; } });
+    pintarCorreos(file.name); $('mCorreos').hidden = false;
+  }catch(e){ toast(errMsg(e)); }
+}
+function pintarCorreos(nombre){
+  const etq = {ok:'<span class="chip Entregada">Se asigna</span>', igual:'<span class="chip">Ya lo tiene</span>', nosala:'<span class="chip alerta">Sala no encontrada</span>', malo:'<span class="chip alerta">Correo inválido</span>', dup:'<span class="chip alerta">Correo repetido en el archivo</span>', otra:'<span class="chip alerta">Correo de otra sala</span>'};
+  const ok = impCo.filter(x => x.est === 'ok');
+  $('coBody').innerHTML = `<p class="sub" style="margin:0">Archivo: <strong>${esc(nombre)}</strong> · ${plural(impCo.length, 'fila con correo', 'filas con correo')}.</p>
+    <div class="tbl-wrap" style="max-height:52vh;overflow:auto"><table><thead><tr><th>Sala / área</th><th>Correo</th><th>Antes</th><th>Resultado</th></tr></thead><tbody>${impCo.map(x => `<tr><td>${x.u ? `<strong>${esc(x.u.nombre)}</strong>` : esc(x.ref)}</td><td class="mono" style="font-size:12px">${esc(x.correo)}</td><td class="mono sub" style="font-size:12px">${esc(x.u?.correo || '–')}</td><td>${etq[x.est]}${x.otra ? ` <span class="sub">(${esc(x.otra.nombre)})</span>` : ''}</td></tr>`).join('') || '<tr><td colspan="4" class="empty">El archivo no tiene correos.</td></tr>'}</tbody></table></div>`;
+  $('coAplicar').textContent = ok.length ? `Asignar ${plural(ok.length, 'usuario', 'usuarios')}` : 'Nada para asignar'; $('coAplicar').disabled = !ok.length;
+}
+async function aplicarCorreos(btn){
+  const ok = impCo.filter(x => x.est === 'ok'); btn.disabled = true; let n = 0; const fallos = [];
+  for(const x of ok){ const {error} = await sb.rpc('guardar_correo_unidad', {p_id:x.u.id, p_correo:x.correo}); if(error) fallos.push(x.u.nombre + ': ' + errMsg(error)); else { n++; x.u.correo = x.correo; } }
+  btn.disabled = false; $('mCorreos').hidden = true;
+  toast(`${plural(n, 'usuario asignado', 'usuarios asignados')}.${fallos.length ? ' No se pudo: ' + fallos.slice(0, 3).join(' · ') : ''}`);
+  try{ await cargarBase(); }catch(_){} render();
+}
+document.addEventListener('click', e => {
+  const t = e.target;
+  if(t.id === 'btnExigir') cambiarExigir(t);
+  if(t.id === 'btnPlantCorreos') plantillaCorreos();
+  if(t.id === 'btnSubirCorreos') $('fileCorreos').click();
+  if(t.id === 'coAplicar') aplicarCorreos(t);
+});
+document.addEventListener('change', e => { if(e.target.id === 'fileCorreos' && e.target.files[0]){ leerCorreos(e.target.files[0]); e.target.value = ''; } });
 function vConfig(){
   const q = fCfgQ.toLowerCase();
   const us = UL.filter(u => (fCfgGr === 'TODOS' || u.grupo_id === fCfgGr) && (!q || u.nombre.toLowerCase().includes(q) || (u.codigo_sala || '').includes(q))).sort((a,b) => (b.activa - a.activa));
   const sin = UL.filter(u => u.grupo_id === 'SIN').length;
-  return `<section class="panel"><div class="panel-head"><div><h2>Aprobadores</h2><p class="sub">Cada aprobador ingresa con el correo que figure aquí. Mientras no tenga correo, sus solicitudes las puede confirmar logística.</p></div></div>
+  return vIngreso() + `<section class="panel"><div class="panel-head"><div><h2>Aprobadores</h2><p class="sub">Cada aprobador ingresa con el correo que figure aquí. Mientras no tenga correo, sus solicitudes las puede confirmar logística.</p></div></div>
     <div class="tbl-wrap"><table><thead><tr><th>Grupo</th><th>Nombre del aprobador</th><th>Correo para ingresar</th><th class="num">Unidades</th><th></th></tr></thead><tbody>` +
     GL.map(g => `<tr><td><strong class="gtag" data-g="${esc(g.id)}">${esc(g.nombre)}</strong><div class="sub" style="margin:0">${esc(g.tipo)}</div></td>
       <td><input id="cfgN-${g.id}" value="${esc(g.aprobador)}" maxlength="80"></td><td><input type="email" id="cfgE-${g.id}" value="${esc(g.aprobador_email || '')}" placeholder="correo@farmaciachavez.com.bo"></td>
@@ -683,7 +771,7 @@ function pintaDet(){
   const paso = (n, ts, i) => { const cls = rech && i === 1 ? 'bad' : rech && i === 2 ? '' : i <= nivel ? 'done' : i === nivel + 1 ? 'now' : '';
     return `<li class="${cls}"><b>${rech && i === 1 ? 'Rechazada' : n}</b>${(cls === 'done' || cls === 'bad') && ts ? fFH(ts) : cls === 'now' ? 'En espera' : 'Pendiente'}</li>`; };
   let h = `<ol class="steps">${paso('Enviada', p.ts, 0)}${paso('Confirmada', p.confirmado_ts, 1)}${paso('Entregada', p.entregado_ts, 2)}</ol>
-    <div class="meta"><div><strong>${esc(u.tipo || 'Unidad')}:</strong> ${esc(u.nombre)}</div><div><strong>Solicitó:</strong> ${esc(titulo(p.solicitante))}</div><div><strong>Aprueba:</strong> ${esc(G[u.grupo_id]?.aprobador || '')}</div>
+    <div class="meta"><div><strong>${esc(u.tipo || 'Unidad')}:</strong> ${esc(u.nombre)}</div><div><strong>Solicitó:</strong> ${esc(titulo(p.solicitante))}${p.enviado_por ? ` <span class="sub">(${esc(p.enviado_por)})</span>` : ''}</div><div><strong>Aprueba:</strong> ${esc(G[u.grupo_id]?.aprobador || '')}</div>
     ${u.muelle ? `<div><strong>Muelle:</strong> ${esc(u.muelle)}</div>` : ''}${p.nro_traspaso ? `<div><strong>N° de traspaso:</strong> <span class="mono">${esc(p.nro_traspaso)}</span></div>` : ''}<div><strong>Estado:</strong> ${chip(p.estado)}${p.tipo === 'Apertura' ? ' <span class="chip apertura">Apertura</span>' : ''}</div>${p.tipo === 'Apertura' ? `<div><strong>Inauguración:</strong> ${p.fecha_apertura ? esc(fDia(p.fecha_apertura)) + ' · ' + esc(txtAbre(p.fecha_apertura)) : 'sin fecha'}</div>` : ''}${p.recibido_por ? `<div><strong>Recibió:</strong> ${esc(p.recibido_por)}</div>` : ''}</div>`;
   if(rech) h += `<div class="notice bad"><strong>Motivo del rechazo:</strong> ${esc(p.motivo_rechazo)}</div>`;
   if(p.nota) h += `<div class="notice info"><strong>Nota de quien confirmó:</strong> ${esc(p.nota)}</div>`;
@@ -757,12 +845,13 @@ async function evaluarSesion(s){
   sesion = s; rol = {admin:false, grupos:[]};
   if(s){ const {data} = await sb.rpc('mi_rol'); if(data) rol = {admin:!!data.admin, grupos:data.grupos || [], unidad:data.unidad || null}; }
   $('btnLogin').textContent = s ? 'Salir' : 'Ingresar';
-  $('roleChip').textContent = rol.admin ? 'Logística CEDIS' : rol.unidad && U[rol.unidad] && !rol.grupos.length ? U[rol.unidad].nombre : rol.grupos.length ? 'Aprobador · ' + rol.grupos.map(g => G[g]?.aprobador).join(', ') : s ? 'Sin grupo asignado' : 'Sucursal';
+  $('roleChip').textContent = rol.admin ? 'Logística CEDIS' : rol.unidad && U[rol.unidad] && !rol.grupos.length ? U[rol.unidad].nombre : rol.grupos.length ? 'Aprobador · ' + rol.grupos.map(g => G[g]?.aprobador).join(', ') : s ? 'Sin grupo asignado' : EXIGIR ? 'Sin ingresar' : 'Sucursal';
   $('roleChip').classList.toggle('role', rol.admin || rol.grupos.length > 0);
   if(rol.admin){ try{ await cargarBase(); }catch(e){} }
+  if(listo && EXIGIR){ try{ await cargarPedidos(); }catch(e){} }
   await cargarPrecios();
   activarPush(true);
-  if(s && !rol.admin && !rol.grupos.length) toast('Ingresó, pero su correo todavía no está asignado a ningún grupo. Pida a logística que lo registre.');
+  if(s && !rol.admin && !rol.grupos.length && !rol.unidad) toast('Ingresó, pero su correo todavía no está vinculado a ninguna sala ni grupo. Pida a logística que lo registre.');
   if((rol.admin || rol.grupos.length) && (tab === 'solicitar' || !tab)) tab = rol.admin ? 'tablero' : 'bandeja';
   if(tabPedida && planoTabs(tabsDisponibles()).some(x => x[0] === tabPedida)){ tab = tabPedida; tabPedida = null; }
   render();
