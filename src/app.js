@@ -1413,3 +1413,27 @@ document.addEventListener('change', e => {
   if(t.id === 'fInvVer'){ fInvVer = t.value; render(); }
 });
 document.addEventListener('input', e => { if(e.target.id === 'fInvQ'){ fInvQ = e.target.value; render(); } });
+
+// Flechas ↑ ↓: recorrer los resultados del buscador y moverse entre las cantidades de la tabla
+document.addEventListener('keydown', e => {
+  if(e.key !== 'ArrowDown' && e.key !== 'ArrowUp' && e.key !== 'Enter' && e.key !== 'Escape') return;
+  if(e.altKey || e.ctrlKey || e.metaKey) return;
+  const t = e.target, paso = e.key === 'ArrowDown' ? 1 : -1;
+  const esBus = t.id === 'nBuscar' || t.id === 'kitBuscar', qtyAttr = t.dataset?.nk != null ? 'nk' : t.dataset?.kq != null ? 'kq' : null;
+  if(esBus){
+    const box = $(t.id === 'nBuscar' ? 'nRes' : 'kitRes'), bs = box && !box.hidden ? [...box.querySelectorAll('button')] : [];
+    let i = bs.findIndex(b => b.classList.contains('activo'));
+    if(e.key === 'Escape'){ if(box) box.hidden = true; return; }
+    if(e.key === 'Enter'){ if(bs.length){ e.preventDefault(); (bs[i] || bs[0]).click(); } return; }
+    if(bs.length){ e.preventDefault(); i = i < 0 ? (paso > 0 ? 0 : bs.length - 1) : Math.min(bs.length - 1, Math.max(0, i + paso));
+      bs.forEach((b, k) => b.classList.toggle('activo', k === i)); bs[i].scrollIntoView({block:'nearest'}); return; }
+    if(paso > 0){ const q = document.querySelector(`[data-${t.id === 'nBuscar' ? 'nk' : 'kq'}]`); if(q){ e.preventDefault(); q.focus(); q.select?.(); } }
+    return;
+  }
+  if(qtyAttr && (e.key === 'ArrowDown' || e.key === 'ArrowUp')){
+    e.preventDefault();
+    const qs = [...document.querySelectorAll(`[data-${qtyAttr}]`)], k = qs.indexOf(t), sig = qs[k + paso];
+    if(sig){ sig.focus(); sig.select?.(); sig.scrollIntoView({block:'nearest'}); }
+    else if(paso < 0){ const b = $(qtyAttr === 'nk' ? 'nBuscar' : 'kitBuscar'); if(b) b.focus(); }
+  }
+});

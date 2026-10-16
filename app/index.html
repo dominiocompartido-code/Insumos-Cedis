@@ -207,7 +207,8 @@ tr.marcada td{background:color-mix(in srgb, var(--brand) 18%, var(--surface)) !i
 .search{position:relative}
 .results{position:absolute;left:0;right:0;top:calc(100% + 4px);background:var(--surface);border:1px solid var(--line);border-radius:8px;box-shadow:var(--shadow);max-height:280px;overflow-y:auto;z-index:20}
 .results button{display:flex;justify-content:space-between;gap:8px;width:100%;text-align:left;background:none;border:0;border-bottom:1px solid var(--line);padding:9px 12px;color:var(--ink);font:inherit;cursor:pointer}
-.results button:hover,.results button:focus-visible{background:var(--chip)}
+.results button:hover,.results button:focus-visible,.results button.activo{background:var(--chip)}
+.results button.activo{box-shadow:inset 3px 0 0 var(--brand)}
 .results .none{padding:12px;color:var(--muted)}
 .unidad-box{display:flex;gap:12px;align-items:center;flex-wrap:wrap;background:var(--surface-2);border:1px solid var(--line);border-radius:8px;padding:12px}
 .unidad-box b{font-family:var(--f-display);font-size:22px;letter-spacing:.02em}
@@ -2252,6 +2253,30 @@ document.addEventListener('change', e => {
   if(t.id === 'fInvVer'){ fInvVer = t.value; render(); }
 });
 document.addEventListener('input', e => { if(e.target.id === 'fInvQ'){ fInvQ = e.target.value; render(); } });
+
+// Flechas ↑ ↓: recorrer los resultados del buscador y moverse entre las cantidades de la tabla
+document.addEventListener('keydown', e => {
+  if(e.key !== 'ArrowDown' && e.key !== 'ArrowUp' && e.key !== 'Enter' && e.key !== 'Escape') return;
+  if(e.altKey || e.ctrlKey || e.metaKey) return;
+  const t = e.target, paso = e.key === 'ArrowDown' ? 1 : -1;
+  const esBus = t.id === 'nBuscar' || t.id === 'kitBuscar', qtyAttr = t.dataset?.nk != null ? 'nk' : t.dataset?.kq != null ? 'kq' : null;
+  if(esBus){
+    const box = $(t.id === 'nBuscar' ? 'nRes' : 'kitRes'), bs = box && !box.hidden ? [...box.querySelectorAll('button')] : [];
+    let i = bs.findIndex(b => b.classList.contains('activo'));
+    if(e.key === 'Escape'){ if(box) box.hidden = true; return; }
+    if(e.key === 'Enter'){ if(bs.length){ e.preventDefault(); (bs[i] || bs[0]).click(); } return; }
+    if(bs.length){ e.preventDefault(); i = i < 0 ? (paso > 0 ? 0 : bs.length - 1) : Math.min(bs.length - 1, Math.max(0, i + paso));
+      bs.forEach((b, k) => b.classList.toggle('activo', k === i)); bs[i].scrollIntoView({block:'nearest'}); return; }
+    if(paso > 0){ const q = document.querySelector(`[data-${t.id === 'nBuscar' ? 'nk' : 'kq'}]`); if(q){ e.preventDefault(); q.focus(); q.select?.(); } }
+    return;
+  }
+  if(qtyAttr && (e.key === 'ArrowDown' || e.key === 'ArrowUp')){
+    e.preventDefault();
+    const qs = [...document.querySelectorAll(`[data-${qtyAttr}]`)], k = qs.indexOf(t), sig = qs[k + paso];
+    if(sig){ sig.focus(); sig.select?.(); sig.scrollIntoView({block:'nearest'}); }
+    else if(paso < 0){ const b = $(qtyAttr === 'nk' ? 'nBuscar' : 'kitBuscar'); if(b) b.focus(); }
+  }
+});
 
 </script>
 </body>

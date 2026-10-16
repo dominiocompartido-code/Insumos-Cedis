@@ -207,7 +207,8 @@ tr.marcada td{background:color-mix(in srgb, var(--brand) 18%, var(--surface)) !i
 .search{position:relative}
 .results{position:absolute;left:0;right:0;top:calc(100% + 4px);background:var(--surface);border:1px solid var(--line);border-radius:8px;box-shadow:var(--shadow);max-height:280px;overflow-y:auto;z-index:20}
 .results button{display:flex;justify-content:space-between;gap:8px;width:100%;text-align:left;background:none;border:0;border-bottom:1px solid var(--line);padding:9px 12px;color:var(--ink);font:inherit;cursor:pointer}
-.results button:hover,.results button:focus-visible{background:var(--chip)}
+.results button:hover,.results button:focus-visible,.results button.activo{background:var(--chip)}
+.results button.activo{box-shadow:inset 3px 0 0 var(--brand)}
 .results .none{padding:12px;color:var(--muted)}
 .unidad-box{display:flex;gap:12px;align-items:center;flex-wrap:wrap;background:var(--surface-2);border:1px solid var(--line);border-radius:8px;padding:12px}
 .unidad-box b{font-family:var(--f-display);font-size:22px;letter-spacing:.02em}
