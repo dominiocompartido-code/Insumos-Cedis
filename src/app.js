@@ -270,7 +270,6 @@ document.addEventListener('change', e => {
   if(id === 'fCobCiclo'){ fCobCiclo = +e.target.value; render(); }
   if(id === 'fPrepCiclo'){ fPrepCiclo = +e.target.value; render(); }
   if(id === 'fPrepAlc'){ fPrepAlc = e.target.value; render(); }
-  if(id === 'fPrepEst'){ fPrepEst = e.target.value; render(); }
 });
 document.addEventListener('input', e => {
   if(e.target.id === 'fMatQ'){ fMatQ = e.target.value; pintaMateriales(); }
@@ -567,11 +566,15 @@ function vEntregar(){
     ${rol.admin ? '' : '<!--'}<div class="acciones ${n ? 'on' : ''}"><span><strong>${n}</strong> seleccionadas</span>${n ? '<button class="btn btn-sm" id="btnLimpiarSel">Quitar selección</button>' : ''}<input id="recVarios" maxlength="100" placeholder="Recibido por (opcional)" style="max-width:220px"><button class="btn btn-ok" id="btnEntVarios" ${n ? '' : 'disabled'}>Marcar entregadas</button></div>${rol.admin ? '' : '-->'}
     ${tabla(l, ['codigo','unidad','muelle','aprob','enviada','items','traspaso','avance'], 'No hay solicitudes confirmadas pendientes de entrega.', rol.admin)}</section>`;
 }
-let fPrep = 'TODOS', fPrepCiclo = null, fPrepAlc = 'todo', fPrepEst = 'pend';
+let fPrep = 'TODOS', fPrepCiclo = null, fPrepAlc = 'todo';
+// Reporte y preparación: solicitudes Confirmadas (no entregadas) cuya confirmación cae en el mes elegido
+const mesHoy = () => { const d = hoy(); return d.getFullYear() * 100 + d.getMonth() + 1; };
+const mesConf = p => { if(!p.confirmado_ts) return 0; const d = new Date(p.confirmado_ts); return d.getFullYear() * 100 + d.getMonth() + 1; };
+const enMesPrep = p => p.estado === 'Confirmada' && mesConf(p) === (fPrepCiclo || mesHoy());
 const MUELLES = ['DESP-01','DESP-02','DESP-03','DESP-04','DESP-05','SIN'];
 function datosPrep(){
-  fPrepCiclo ||= cicloActivo();
-  const l = pedidos.filter(p => p.estado === 'Confirmada' && cicloDe(p.ts) === fPrepCiclo && (fPrep === 'TODOS' || grupoDe(p) === fPrep));
+  fPrepCiclo ||= mesHoy();
+  const l = pedidos.filter(p => enMesPrep(p) && (fPrep === 'TODOS' || grupoDe(p) === fPrep));
   const m = {}; l.forEach(p => { const mu = U[p.unidad_id]?.muelle || 'SIN'; p.items.forEach(i => { const x = m[i.codigo] ||= {codigo:i.codigo, descripcion:i.descripcion, unidad:i.unidad, por:{}, total:0, unidades:new Set()}; const c = +i.cantidad || 0; x.por[mu] = (x.por[mu]||0) + c; x.total += c; x.unidades.add(p.unidad_id); }); });
   return {l, filas:Object.values(m).sort((a,b) => a.descripcion.localeCompare(b.descripcion,'es'))};
 }
@@ -579,16 +582,14 @@ function vPreparacion(){
   const {l, filas} = datosPrep();
   const tot = Object.fromEntries(MUELLES.map(mu => [mu, filas.reduce((a,f) => a + (f.por[mu]||0), 0)]));
   const c = fPrepCiclo, enAlc = p => fPrepAlc === 'todo' || U[p.unidad_id]?.tipo === 'Sucursal';
-  const enEst = p => p.estado === 'Confirmada' || (fPrepEst === 'ciclo' && p.estado === 'Entregada');
-  const aprob = pedidos.filter(p => cicloDe(p.ts) === c && enEst(p) && enAlc(p)), pend = pedidos.filter(p => cicloDe(p.ts) === c && p.estado === 'Enviada' && enAlc(p));
-  const salas = new Set(aprob.map(p => p.unidad_id)).size, falt = sinEnviar(c).filter(u => fPrepAlc === 'todo' || u.tipo === 'Sucursal').length;
-  return `<section class="panel reporte"><div class="panel-head"><div><h2>Reporte de dotación</h2><p class="sub">Excel con el formato de "Dotación Sucursales": detalle por sala, consolidado por muelle e índice de salas, listo para imprimir en carta.</p></div></div>
-    <div class="row"><label class="f">Ciclo<select id="fPrepCiclo">${[0,1,2,3,4,5].map(k => cicloMenos(cicloActivo(), k)).map(cc => `<option value="${cc}" ${cc === c ? 'selected' : ''}>${esc(nombreCiclo(cc))}</option>`).join('')}</select></label>
-      <label class="f">Incluir<select id="fPrepAlc"><option value="sucursales" ${fPrepAlc === 'sucursales' ? 'selected' : ''}>Solo sucursales</option><option value="todo" ${fPrepAlc === 'todo' ? 'selected' : ''}>Sucursales, oficina central y CEDIS</option></select></label>
-      <label class="f">Solicitudes<select id="fPrepEst"><option value="pend" ${fPrepEst === 'pend' ? 'selected' : ''}>Confirmadas por entregar</option><option value="ciclo" ${fPrepEst === 'ciclo' ? 'selected' : ''}>Todo lo aprobado del ciclo (con entregadas)</option></select></label></div>
-    <div class="resumen-rep"><span class="chip Confirmada">${plural(aprob.length, fPrepEst === 'pend' ? 'solicitud por entregar' : 'solicitud aprobada', fPrepEst === 'pend' ? 'solicitudes por entregar' : 'solicitudes aprobadas')} · ${plural(salas, 'sala o área', 'salas y áreas')}</span>${pend.length ? `<span class="chip Enviada">${plural(pend.length, 'por confirmar', 'por confirmar')}</span>` : '<span class="chip Entregada">todo confirmado</span>'}${falt ? `<span class="chip alerta">${plural(falt, 'sin solicitud', 'sin solicitud')}</span>` : ''}</div>
+  const aprob = pedidos.filter(p => enMesPrep(p) && enAlc(p)), pend = pedidos.filter(p => p.estado === 'Enviada' && enAlc(p));
+  const salas = new Set(aprob.map(p => p.unidad_id)).size, falt = 0;
+  return `<section class="panel reporte"><div class="panel-head"><div><h2>Reporte de dotación</h2><p class="sub">Todas las solicitudes <strong>confirmadas en el mes</strong> que todavía no se entregaron. Excel con el formato de "Dotación Sucursales", listo para imprimir en carta.</p></div></div>
+    <div class="row"><label class="f">Mes de confirmación<select id="fPrepCiclo">${[0,1,2,3,4,5].map(k => cicloMenos(mesHoy(), k)).map(cc => `<option value="${cc}" ${cc === c ? 'selected' : ''}>${esc(nombreCiclo(cc))}</option>`).join('')}</select></label>
+      <label class="f">Incluir<select id="fPrepAlc"><option value="sucursales" ${fPrepAlc === 'sucursales' ? 'selected' : ''}>Solo sucursales</option><option value="todo" ${fPrepAlc === 'todo' ? 'selected' : ''}>Sucursales, oficina central y CEDIS</option></select></label></div>
+    <div class="resumen-rep"><span class="chip Confirmada">${plural(aprob.length, 'confirmada por entregar', 'confirmadas por entregar')} · ${plural(salas, 'sala o área', 'salas y áreas')}</span>${pend.length ? `<span class="chip Enviada">${plural(pend.length, 'por confirmar', 'por confirmar')}</span>` : '<span class="chip Entregada">todo confirmado</span>'}${falt ? `<span class="chip alerta">${plural(falt, 'sin solicitud', 'sin solicitud')}</span>` : ''}</div>
     <div class="row right"><button class="btn btn-primary btn-lg" id="btnReporte" ${aprob.length ? '' : 'disabled'}>Generar reporte de dotación (Excel)</button></div></section>
-  <section class="panel"><div class="panel-head"><div><h2>Preparación por muelle</h2><p class="sub">Confirmado y aún no entregado del ciclo ${esc(nombreCiclo(c))}: ${plural(l.length, 'solicitud', 'solicitudes')}.</p></div>
+  <section class="panel"><div class="panel-head"><div><h2>Preparación por muelle</h2><p class="sub">Confirmado en ${esc(nombreCiclo(c).toLowerCase())} y aún no entregado: ${plural(l.length, 'solicitud', 'solicitudes')}.</p></div>
     <div class="row">${selGrupo('fPrep', fPrep)}</div></div>
     <div class="tbl-wrap"><table><thead><tr><th>Código</th><th>Insumo</th><th class="num">U.M.</th>${MUELLES.map(m => `<th class="num">${m === 'SIN' ? 'Sin muelle' : m}</th>`).join('')}<th class="num">Total</th><th class="num">N° unidades</th>${verPrecios() ? '<th class="num">Valor</th>' : ''}</tr></thead><tbody>` +
     (filas.length ? filas.map(f => `<tr><td class="code">${esc(f.codigo)}</td><td>${esc(f.descripcion)}</td><td class="num">${esc(f.unidad)}</td>${MUELLES.map(m => f.por[m] ? `<td class="num">${f.por[m]}</td>` : '<td class="num zero">–</td>').join('')}<td class="num"><strong>${f.total}</strong></td><td class="num">${f.unidades.size}</td>${verPrecios() ? `<td class="num" style="white-space:nowrap">${P[f.codigo] != null ? fBs(P[f.codigo] * f.total) : '<span class="sub">sin precio</span>'}</td>` : ''}</tr>`).join('') +
@@ -1092,13 +1093,13 @@ async function entregarVarios(btn){
   sel.clear(); toast(`${plural(data ?? ids.length, 'solicitud entregada', 'solicitudes entregadas')}.`); cargarPedidos();
 }
 async function generarReporte(btn){
-  const c = fPrepCiclo || cicloActivo(), enAlc = p => fPrepAlc === 'todo' || U[p.unidad_id]?.tipo === 'Sucursal';
-  const pend = pedidos.filter(p => cicloDe(p.ts) === c && p.estado === 'Enviada' && enAlc(p)).length;
-  if(pend && !await confirmar(`Todavía hay ${plural(pend, 'solicitud', 'solicitudes')} de ${nombreCiclo(c)} sin confirmar. El reporte solo incluye las aprobadas. ¿Generarlo igual?`)) return;
+  const c = fPrepCiclo || mesHoy(), enAlc = p => fPrepAlc === 'todo' || U[p.unidad_id]?.tipo === 'Sucursal';
+  const pend = pedidos.filter(p => p.estado === 'Enviada' && enAlc(p)).length;
+  if(pend && !await confirmar(`Todavía hay ${plural(pend, 'solicitud', 'solicitudes')} sin confirmar. El reporte solo incluye las confirmadas. ¿Generarlo igual?`)) return;
   btn.disabled = true;
   try{
     const r = libroDotacion(c, fPrepAlc);
-    if(!r.salas){ toast(fPrepEst === 'pend' ? 'No hay solicitudes confirmadas por entregar en ese ciclo.' : 'No hay solicitudes aprobadas en ese ciclo.'); return; }
+    if(!r.salas){ toast('No hay solicitudes confirmadas por entregar en ese mes.'); return; }
     const d = hoy(), f = `${d.getFullYear()}${pad(d.getMonth()+1)}${pad(d.getDate())}`;
     await descargar(r.bytes, `Dotacion_Sucursales_${f}.xlsx`);
     toast(`Reporte listo: ${plural(r.salas, 'sala', 'salas')}, ${plural(r.insumos, 'insumo', 'insumos')}, ${plural(r.paginas, 'hoja', 'hojas')} para imprimir.`);
