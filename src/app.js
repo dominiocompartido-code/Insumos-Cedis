@@ -78,10 +78,10 @@ function bannerPush(){
 }
 let KIT = [], P = {};
 const verPrecios = () => rol.admin || rol.grupos.length > 0;
-let INV = {}, INV_INFO = null;
-async function cargarInventario(){ INV = {}; INV_INFO = null; if(!verTablero()) return;
+let INV = {}, INVD = {}, INV_INFO = null;
+async function cargarInventario(){ INV = {}; INVD = {}; INV_INFO = null; if(!verTablero()) return;
   try{ const [a, b] = await Promise.all([sb.from('inventario').select('*'), sb.from('inventario_cargas').select('*').order('ts', {ascending:false}).limit(1)]);
-    (a.data || []).forEach(r => INV[r.codigo] = +r.stock || 0); const l = (b.data || []).slice().sort((x, y) => new Date(y.ts) - new Date(x.ts)); INV_INFO = l[0] || null; }catch(e){} }
+    (a.data || []).forEach(r => { INV[r.codigo] = +r.stock || 0; INVD[r.codigo] = {descripcion:r.descripcion || '', unidad:r.unidad || ''}; }); const l = (b.data || []).slice().sort((x, y) => new Date(y.ts) - new Date(x.ts)); INV_INFO = l[0] || null; }catch(e){} }
 async function cargarPrecios(){ P = {}; if(!verPrecios()) return; try{ const {data} = await sb.from('precios').select('*'); (data || []).forEach(r => P[r.codigo] = +r.precio); }catch(e){} }
 const fBs = n => 'Bs ' + (+n || 0).toLocaleString('es-BO', {minimumFractionDigits:2, maximumFractionDigits:2});
 const precioDe = (p, cod) => { const v = p && p.precios && p.precios[cod] != null ? +p.precios[cod] : P[cod]; return v != null && !isNaN(v) ? v : null; };
@@ -1312,14 +1312,14 @@ function datosInventario(){
   const conf = {}, pend = {}, salasC = {}, info = {};
   pedidos.forEach(p => { const dest = p.estado === 'Confirmada' ? conf : p.estado === 'Enviada' ? pend : null; if(!dest) return;
     p.items.forEach(i => { const c = +i.cantidad || 0; if(!c) return; dest[i.codigo] = (dest[i.codigo] || 0) + c; info[i.codigo] ||= i; (salasC[i.codigo] ||= new Set()).add(p.unidad_id); }); });
-  const cods = new Set([...Object.keys(conf), ...Object.keys(pend), ...ML.filter(matActivo).map(m => m.codigo)]);
-  return [...cods].map(c => { const m = M[c] || info[c] || {}, st = INV[c] || 0, cf = conf[c] || 0, pe = pend[c] || 0, nec = cf + (fInvPend ? pe : 0), saldo = st - nec;
-    return {codigo:c, descripcion:m.descripcion || c, unidad:m.unidad || '', stock:st, conf:cf, pend:pe, nec, saldo, falta:Math.max(0, -saldo), salas:salasC[c]?.size || 0, precio:P[c]}; })
+  const cods = new Set([...Object.keys(conf), ...Object.keys(pend), ...ML.filter(matActivo).map(m => m.codigo), ...Object.keys(INV)]);
+  return [...cods].map(c => { const m = M[c] || info[c] || INVD[c] || {}, st = INV[c] || 0, cf = conf[c] || 0, pe = pend[c] || 0, nec = cf + (fInvPend ? pe : 0), saldo = st - nec;
+    return {codigo:c, descripcion:m.descripcion || c, unidad:m.unidad || '', stock:st, conf:cf, pend:pe, nec, saldo, falta:Math.max(0, -saldo), salas:salasC[c]?.size || 0, precio:P[c], fuera:!M[c] || !matActivo(M[c])}; })
     .filter(r => r.nec > 0 || r.stock > 0);
 }
 function vInventario(){
   const todos = datosInventario(), q = normTxt(fInvQ).trim().split(/\s+/).filter(Boolean);
-  const l = todos.filter(r => (fInvVer === 'todos' || (fInvVer === 'falta' ? r.falta > 0 : r.nec > 0)) && (!q.length || q.every(w => normTxt(r.descripcion + ' ' + r.codigo).includes(w))))
+  const l = todos.filter(r => (fInvVer === 'todos' || (fInvVer === 'fuera' ? r.fuera && r.stock > 0 : fInvVer === 'falta' ? r.falta > 0 : r.nec > 0)) && (!q.length || q.every(w => normTxt(r.descripcion + ' ' + r.codigo).includes(w))))
     .sort((a, b) => (b.falta > 0) - (a.falta > 0) || b.falta * (b.precio || 0) - a.falta * (a.precio || 0) || b.falta - a.falta || a.descripcion.localeCompare(b.descripcion, 'es'));
   const conNec = todos.filter(r => r.nec > 0), faltan = conNec.filter(r => r.falta > 0), valor = faltan.reduce((a, r) => a + r.falta * (r.precio || 0), 0), sinP = faltan.filter(r => r.precio == null).length;
   const fq = n => (+n).toLocaleString('es-BO', {maximumFractionDigits:2});
@@ -1330,13 +1330,13 @@ function vInventario(){
       <div class="kpi"><b>${fBs(valor)}</b><span>valor a comprar${sinP ? `<br>${plural(sinP, 'insumo sin costo', 'insumos sin costo')}` : ''}</span></div>
       <div class="kpi bien"><b>${conNec.length - faltan.length}</b><span>insumos cubiertos<br>en su totalidad</span></div></div>
     <div class="row"><input id="fInvQ" placeholder="Buscar insumo o código…" value="${esc(fInvQ)}" style="flex:1;min-width:200px" autocomplete="off">
-      <select id="fInvVer" style="width:auto"><option value="falta" ${fInvVer === 'falta' ? 'selected' : ''}>Solo lo que falta comprar</option><option value="nec" ${fInvVer === 'nec' ? 'selected' : ''}>Todo lo solicitado</option><option value="todos" ${fInvVer === 'todos' ? 'selected' : ''}>Todo el inventario</option></select>
+      <select id="fInvVer" style="width:auto"><option value="falta" ${fInvVer === 'falta' ? 'selected' : ''}>Solo lo que falta comprar</option><option value="nec" ${fInvVer === 'nec' ? 'selected' : ''}>Todo lo solicitado</option><option value="todos" ${fInvVer === 'todos' ? 'selected' : ''}>Todo el inventario</option><option value="fuera" ${fInvVer === 'fuera' ? 'selected' : ''}>En inventario pero no en la app (${todos.filter(r => r.fuera && r.stock > 0).length})</option></select>
       <label class="recordar" style="margin:0"><input type="checkbox" id="fInvPend" ${fInvPend ? 'checked' : ''}> Incluir solicitudes por confirmar</label></div>
     <div class="tbl-wrap"><table class="inv"><thead><tr><th>Código</th><th>Insumo</th><th class="num">U.M.</th><th class="num">Stock</th><th class="num">Confirmado<br>por entregar</th><th class="num">Por<br>confirmar</th><th class="num">Necesidad</th><th class="num">Saldo</th><th class="num">A comprar</th>${verPrecios() ? '<th class="num">Valor compra</th>' : ''}</tr></thead><tbody>` +
-    (l.length ? l.map(r => `<tr class="${r.falta ? 'inv-falta' : ''}"><td class="code">${esc(r.codigo)}</td><td>${esc(r.descripcion)}${r.salas ? `<div class="sub" style="margin:0">${plural(r.salas, 'sala o área', 'salas y áreas')}</div>` : ''}</td><td class="num">${esc(r.unidad)}</td>
+    (l.length ? l.map(r => `<tr class="${r.falta ? 'inv-falta' : ''}"><td class="code">${esc(r.codigo)}</td><td>${esc(r.descripcion)}${r.salas ? `<div class="sub" style="margin:0">${plural(r.salas, 'sala o área', 'salas y áreas')}</div>` : ''}${r.fuera ? `<div style="margin-top:3px"><span class="chip">no está en la app</span>${puedeCatalogo() ? ` <button class="btn btn-sm" data-inv-crear="${esc(r.codigo)}">Agregar a materiales</button>` : ''}</div>` : ''}</td><td class="num">${esc(r.unidad)}</td>
       <td class="num">${fq(r.stock)}</td><td class="num">${r.conf ? fq(r.conf) : '<span class="zero">–</span>'}</td><td class="num ${fInvPend ? '' : 'sub'}">${r.pend ? fq(r.pend) : '<span class="zero">–</span>'}</td><td class="num"><strong>${fq(r.nec)}</strong></td>
-      <td class="num ${r.saldo < 0 ? 'neg' : ''}">${fq(r.saldo)}</td><td class="num">${r.falta ? `<strong class="neg">${fq(r.falta)}</strong>` : '<span class="chip Entregada">alcanza</span>'}</td>${verPrecios() ? `<td class="num" style="white-space:nowrap">${r.falta ? (r.precio != null ? fBs(r.falta * r.precio) : '<span class="sub">sin costo</span>') : ''}</td>` : ''}</tr>`).join('')
-      : `<tr><td colspan="10" class="empty">${fInvVer === 'falta' ? 'Con el stock actual alcanza para todo lo solicitado. 🎉' : 'No hay insumos para mostrar.'}</td></tr>`) + '</tbody></table></div></section>';
+      <td class="num ${r.saldo < 0 ? 'neg' : ''}">${fq(r.saldo)}</td><td class="num">${r.falta ? `<strong class="neg">${fq(r.falta)}</strong>` : r.nec ? '<span class="chip Entregada">alcanza</span>' : '<span class="zero">–</span>'}</td>${verPrecios() ? `<td class="num" style="white-space:nowrap">${r.falta ? (r.precio != null ? fBs(r.falta * r.precio) : '<span class="sub">sin costo</span>') : ''}</td>` : ''}</tr>`).join('')
+      : `<tr><td colspan="10" class="empty">${fInvVer === 'fuera' ? 'Todo lo que hay en inventario ya está en la app.' : fInvVer === 'falta' ? 'Con el stock actual alcanza para todo lo solicitado. 🎉' : 'No hay insumos para mostrar.'}</td></tr>`) + '</tbody></table></div></section>';
 }
 function excelCompra(){
   const l = datosInventario().filter(r => r.falta > 0).sort((a, b) => a.descripcion.localeCompare(b.descripcion, 'es'));
@@ -1370,12 +1370,16 @@ function prepararInventario(filas, nombre){
   const datos = hi >= 0 ? filas.slice(hi + 1) : filas;
   let cc = cab.findIndex(t => /cod/.test(t) && !/barra/.test(t)), cs = cab.findIndex(t => /stock|saldo|exist|fisico|disponible/.test(t)), cp = cab.findIndex(t => /costo|precio|c\.?\s*u|unit/.test(t));
   if(cs < 0) cs = cab.findIndex(t => /^cant|cantidad/.test(t));
+  let cd = cab.findIndex(t => /descrip|nombre|articulo|item|producto/.test(t)), cu = cab.findIndex(t => /^u\.?\s*m|unidad|medida/.test(t));
   if(cc < 0){ let best = 0; for(let i = 0; i < ancho; i++){ const k = datos.filter(f => M[normCod(f[i])]).length; if(k > best){ best = k; cc = i; } } }
   if(cc >= 0 && cs < 0){ for(let i = cc + 1; i < ancho; i++){ if(datos.filter(f => num(f[i]) != null).length > datos.length * .6){ cs = i; break; } } }
   if(cc >= 0 && cs >= 0 && cp < 0){ for(let i = cs + 1; i < ancho; i++){ if(datos.filter(f => num(f[i]) != null).length > datos.length * .6){ cp = i; break; } } }
+  const txt = i => datos.slice(0, 200).map(f => String(f[i] ?? '').trim()).filter(Boolean);
+  if(cd < 0){ let best = 0; for(let i = 0; i < ancho; i++){ if(i === cc || i === cs || i === cp) continue; const v = txt(i), m = v.length ? v.reduce((a, x) => a + x.length, 0) / v.length : 0; if(m > best && v.filter(x => /[a-z]/i.test(x)).length > v.length * .6){ best = m; cd = i; } } }
+  if(cu < 0){ for(let i = 0; i < ancho; i++){ if([cc, cs, cp, cd].includes(i)) continue; const v = txt(i); if(v.length && v.filter(x => /^[a-z]{2,4}\.?$/i.test(x)).length > v.length * .7){ cu = i; break; } } }
   if(cc < 0 || cs < 0){ toast('No reconocí las columnas de código y stock. El archivo debe tener una columna "Código" y otra "Stock" (o "Saldo").'); return; }
   const por = {};
-  datos.forEach(f => { const c = normCod(f[cc]), st = num(f[cs]); if(!/^\d{3,7}$/.test(c) || st == null) return; const x = por[c] ||= {codigo:c, stock:0, costo:null}; x.stock += st; const pc = cp >= 0 ? num(f[cp]) : null; if(pc != null && pc > 0) x.costo = pc; });
+  datos.forEach(f => { const c = normCod(f[cc]), st = num(f[cs]); if(!/^\d{3,7}$/.test(c) || st == null) return; const x = por[c] ||= {codigo:c, stock:0, costo:null, descripcion:cd >= 0 ? String(f[cd] || '').trim() : '', unidad:cu >= 0 ? String(f[cu] || '').trim() : ''}; x.stock += st; const pc = cp >= 0 ? num(f[cp]) : null; if(pc != null && pc > 0) x.costo = pc; });
   const items = Object.values(por);
   if(!items.length){ toast('El archivo no tiene filas con código y stock.'); return; }
   impInv = {items, nombre, conCosto: cp >= 0};
@@ -1399,6 +1403,7 @@ document.addEventListener('click', e => {
   const t = e.target;
   if(t.id === 'btnInvSubir') $('fileInv').click();
   if(t.id === 'btnInvExcel') excelCompra();
+  const ic = t.closest?.('[data-inv-crear]'); if(ic){ const c = ic.dataset.invCrear, d = INVD[c] || {}; abrirNuevoMaterial(); $('matCod').value = c; $('matDesc').value = d.descripcion || ''; $('matUM').value = d.unidad || ''; $('matDesc').dispatchEvent(new Event('input', {bubbles:true})); }
   if(t.id === 'invAplicar') aplicarInventario(t);
 });
 document.addEventListener('change', e => {
