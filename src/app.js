@@ -105,11 +105,12 @@ let recarga; const programar = fn => { clearTimeout(recarga); recarga = setTimeo
 
 // ---------- roles y pestañas ----------
 const verTablero = () => rol.admin || rol.grupos.some(g => g === 'OFC' || g === 'CEDIS');
+const esJefatura = () => !rol.admin && verTablero();
 const SUB_TABLERO = [['tablero','Resumen'],['bandeja','Por confirmar'],['preparacion','Preparación'],['entregar','Por entregar']];
 function tabsDisponibles(){
   const t = [['solicitar','Solicitar']]; if(rol.admin || !rol.grupos.length) t.push(['seguimiento','Seguimiento']);
   if(rol.admin) t.push(['tablero','Tablero', SUB_TABLERO], ['cobertura','Cobertura'], ['todos','Todos']);
-  else if(verTablero()) t.push(['tablero','Tablero', SUB_TABLERO.slice(0, 2)], ['grupo','Mi grupo'], ['cobertura','Cobertura']);
+  else if(verTablero()) t.push(['tablero','Tablero', SUB_TABLERO], ['grupo','Mi grupo'], ['cobertura','Cobertura'], ['todos','Todos']);
   else if(rol.grupos.length) t.push(['bandeja','Por confirmar'], ['grupo','Mi grupo'], ['cobertura','Cobertura']);
   t.push(['materiales','Materiales']);
   if(rol.admin) t.push(['config','Configuración']);
@@ -126,7 +127,7 @@ function contadores(){
   const c = {};
   c.bandeja = pedidos.filter(p => p.estado === 'Enviada' && puedeAprobar(p)).length;
   if(rol.admin){ c.entregar = pedidos.filter(p => p.estado === 'Confirmada').length; c.tablero = c.bandeja + c.entregar; }
-  else if(verTablero()) c.tablero = c.bandeja;
+  else if(verTablero()){ c.entregar = pedidos.filter(p => p.estado === 'Confirmada').length; c.tablero = c.bandeja; }
   return c;
 }
 $('tabs').addEventListener('click', e => { const b = e.target.closest('[data-tab]'); if(!b) return; if(!b.dataset.grupo) cerrarMenu();
@@ -559,11 +560,11 @@ function vEntregar(){
   const l = pedidos.filter(p => p.estado === 'Confirmada' && (fEnt === 'TODOS' || (U[p.unidad_id]?.muelle || 'SIN') === fEnt)).sort((a,b) => ordenApert(a,b) || a.confirmado_ts - b.confirmado_ts);
   const muelles = [...new Set(UL.map(u => u.muelle || 'SIN'))].sort();
   const n = l.filter(p => sel.has(p.id)).length;
-  return bloqueAvisos(a => a.tab === 'entregar') + `<section class="panel"><div class="panel-head"><div><h2>Confirmadas por entregar</h2><p class="sub">La confirmación más antigua primero. Filtre por muelle, marque las que salieron y regístrelas juntas.</p></div>
-    <div class="row"><button class="btn btn-sm" id="btnPlantTrasp" title="Excel con las solicitudes por entregar, para completar el N° de traspaso">⬇ Plantilla de traspasos</button><button class="btn btn-sm btn-primary" id="btnSubirTrasp">⬆ Subir traspasos (Excel)</button><input type="file" id="fileTrasp" accept=".xlsx,.xls,.csv" hidden>
+  return bloqueAvisos(a => a.tab === 'entregar') + `<section class="panel"><div class="panel-head"><div><h2>Confirmadas por entregar</h2><p class="sub">${rol.admin ? 'La confirmación más antigua primero. Filtre por muelle, marque las que salieron y regístrelas juntas.' : 'Solicitudes confirmadas que Logística CEDIS todavía no entregó, la más antigua primero. Solo consulta.'}</p></div>
+    <div class="row">${rol.admin ? '' : '<!--'}<button class="btn btn-sm" id="btnPlantTrasp" title="Excel con las solicitudes por entregar, para completar el N° de traspaso">⬇ Plantilla de traspasos</button><button class="btn btn-sm btn-primary" id="btnSubirTrasp">⬆ Subir traspasos (Excel)</button><input type="file" id="fileTrasp" accept=".xlsx,.xls,.csv" hidden>${rol.admin ? '' : '-->'}
     <select id="fEnt" style="width:auto"><option value="TODOS">Todos los muelles</option>${muelles.map(m => `<option value="${m}" ${fEnt === m ? 'selected' : ''}>${m === 'SIN' ? 'Sin muelle' : m}</option>`).join('')}</select></div></div>
-    <div class="acciones ${n ? 'on' : ''}"><span><strong>${n}</strong> seleccionadas</span>${n ? '<button class="btn btn-sm" id="btnLimpiarSel">Quitar selección</button>' : ''}<input id="recVarios" maxlength="100" placeholder="Recibido por (opcional)" style="max-width:220px"><button class="btn btn-ok" id="btnEntVarios" ${n ? '' : 'disabled'}>Marcar entregadas</button></div>
-    ${tabla(l, ['codigo','unidad','muelle','aprob','enviada','items','traspaso','avance'], 'No hay solicitudes confirmadas pendientes de entrega.', true)}</section>`;
+    ${rol.admin ? '' : '<!--'}<div class="acciones ${n ? 'on' : ''}"><span><strong>${n}</strong> seleccionadas</span>${n ? '<button class="btn btn-sm" id="btnLimpiarSel">Quitar selección</button>' : ''}<input id="recVarios" maxlength="100" placeholder="Recibido por (opcional)" style="max-width:220px"><button class="btn btn-ok" id="btnEntVarios" ${n ? '' : 'disabled'}>Marcar entregadas</button></div>${rol.admin ? '' : '-->'}
+    ${tabla(l, ['codigo','unidad','muelle','aprob','enviada','items','traspaso','avance'], 'No hay solicitudes confirmadas pendientes de entrega.', rol.admin)}</section>`;
 }
 let fPrep = 'TODOS', fPrepCiclo = null, fPrepAlc = 'sucursales';
 const MUELLES = ['DESP-01','DESP-02','DESP-03','DESP-04','DESP-05','SIN'];
@@ -845,7 +846,7 @@ async function evaluarSesion(s){
   sesion = s; rol = {admin:false, grupos:[]};
   if(s){ const {data} = await sb.rpc('mi_rol'); if(data) rol = {admin:!!data.admin, grupos:data.grupos || [], unidad:data.unidad || null}; }
   $('btnLogin').textContent = s ? 'Salir' : 'Ingresar';
-  $('roleChip').textContent = rol.admin ? 'Logística CEDIS' : rol.unidad && U[rol.unidad] && !rol.grupos.length ? U[rol.unidad].nombre : rol.grupos.length ? 'Aprobador · ' + rol.grupos.map(g => G[g]?.aprobador).join(', ') : s ? 'Sin grupo asignado' : EXIGIR ? 'Sin ingresar' : 'Sucursal';
+  $('roleChip').textContent = rol.admin ? 'Logística CEDIS' : esJefatura() ? 'Jefatura · ' + rol.grupos.map(g => G[g]?.aprobador).join(', ') : rol.unidad && U[rol.unidad] && !rol.grupos.length ? U[rol.unidad].nombre : rol.grupos.length ? 'Aprobador · ' + rol.grupos.map(g => G[g]?.aprobador).join(', ') : s ? 'Sin grupo asignado' : EXIGIR ? 'Sin ingresar' : 'Sucursal';
   $('roleChip').classList.toggle('role', rol.admin || rol.grupos.length > 0);
   if(rol.admin){ try{ await cargarBase(); }catch(e){} }
   if(listo && EXIGIR){ try{ await cargarPedidos(); }catch(e){} }
