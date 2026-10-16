@@ -1312,10 +1312,10 @@ function datosInventario(){
   const conf = {}, pend = {}, salasC = {}, info = {};
   pedidos.forEach(p => { const dest = p.estado === 'Confirmada' ? conf : p.estado === 'Enviada' ? pend : null; if(!dest) return;
     p.items.forEach(i => { const c = +i.cantidad || 0; if(!c) return; dest[i.codigo] = (dest[i.codigo] || 0) + c; info[i.codigo] ||= i; (salasC[i.codigo] ||= new Set()).add(p.unidad_id); }); });
-  const cods = new Set([...Object.keys(conf), ...Object.keys(pend), ...ML.filter(matActivo).map(m => m.codigo), ...Object.keys(INV)]);
+  const cods = new Set([...Object.keys(conf), ...Object.keys(pend), ...ML.filter(matActivo).map(m => m.codigo)]);
   return [...cods].map(c => { const m = M[c] || info[c] || INVD[c] || {}, st = INV[c] || 0, cf = conf[c] || 0, pe = pend[c] || 0, nec = cf + (fInvPend ? pe : 0), saldo = st - nec;
     return {codigo:c, descripcion:m.descripcion || c, unidad:m.unidad || '', stock:st, conf:cf, pend:pe, nec, saldo, falta:Math.max(0, -saldo), salas:salasC[c]?.size || 0, precio:P[c], fuera:!M[c] || !matActivo(M[c])}; })
-    .filter(r => r.nec > 0 || r.stock > 0);
+    .filter(r => !r.fuera && (r.nec > 0 || r.stock > 0));
 }
 function vInventario(){
   const todos = datosInventario(), q = normTxt(fInvQ).trim().split(/\s+/).filter(Boolean);
@@ -1330,10 +1330,10 @@ function vInventario(){
       <div class="kpi"><b>${fBs(valor)}</b><span>valor a comprar${sinP ? `<br>${plural(sinP, 'insumo sin costo', 'insumos sin costo')}` : ''}</span></div>
       <div class="kpi bien"><b>${conNec.length - faltan.length}</b><span>insumos cubiertos<br>en su totalidad</span></div></div>
     <div class="row"><input id="fInvQ" placeholder="Buscar insumo o código…" value="${esc(fInvQ)}" style="flex:1;min-width:200px" autocomplete="off">
-      <select id="fInvVer" style="width:auto"><option value="falta" ${fInvVer === 'falta' ? 'selected' : ''}>Solo lo que falta comprar</option><option value="nec" ${fInvVer === 'nec' ? 'selected' : ''}>Todo lo solicitado</option><option value="todos" ${fInvVer === 'todos' ? 'selected' : ''}>Todo el inventario</option><option value="fuera" ${fInvVer === 'fuera' ? 'selected' : ''}>En inventario pero no en la app (${todos.filter(r => r.fuera && r.stock > 0).length})</option></select>
+      <select id="fInvVer" style="width:auto"><option value="falta" ${fInvVer === 'falta' ? 'selected' : ''}>Solo lo que falta comprar</option><option value="nec" ${fInvVer === 'nec' ? 'selected' : ''}>Todo lo solicitado</option><option value="todos" ${fInvVer === 'todos' ? 'selected' : ''}>Todos los materiales de la app</option></select>
       <label class="recordar" style="margin:0"><input type="checkbox" id="fInvPend" ${fInvPend ? 'checked' : ''}> Incluir solicitudes por confirmar</label></div>
     <div class="tbl-wrap"><table class="inv"><thead><tr><th>Código</th><th>Insumo</th><th class="num">U.M.</th><th class="num">Stock</th><th class="num">Confirmado<br>por entregar</th><th class="num">Por<br>confirmar</th><th class="num">Necesidad</th><th class="num">Saldo</th><th class="num">A comprar</th>${verPrecios() ? '<th class="num">Valor compra</th>' : ''}</tr></thead><tbody>` +
-    (l.length ? l.map(r => `<tr class="${r.falta ? 'inv-falta' : ''}"><td class="code">${esc(r.codigo)}</td><td>${esc(r.descripcion)}${r.salas ? `<div class="sub" style="margin:0">${plural(r.salas, 'sala o área', 'salas y áreas')}</div>` : ''}${r.fuera ? `<div style="margin-top:3px"><span class="chip">no está en la app</span>${puedeCatalogo() ? ` <button class="btn btn-sm" data-inv-crear="${esc(r.codigo)}">Agregar a materiales</button>` : ''}</div>` : ''}</td><td class="num">${esc(r.unidad)}</td>
+    (l.length ? l.map(r => `<tr class="${r.falta ? 'inv-falta' : ''}"><td class="code">${esc(r.codigo)}</td><td>${esc(r.descripcion)}${r.salas ? `<div class="sub" style="margin:0">${plural(r.salas, 'sala o área', 'salas y áreas')}</div>` : ''}</td><td class="num">${esc(r.unidad)}</td>
       <td class="num">${fq(r.stock)}</td><td class="num">${r.conf ? fq(r.conf) : '<span class="zero">–</span>'}</td><td class="num ${fInvPend ? '' : 'sub'}">${r.pend ? fq(r.pend) : '<span class="zero">–</span>'}</td><td class="num"><strong>${fq(r.nec)}</strong></td>
       <td class="num ${r.saldo < 0 ? 'neg' : ''}">${fq(r.saldo)}</td><td class="num">${r.falta ? `<strong class="neg">${fq(r.falta)}</strong>` : r.nec ? '<span class="chip Entregada">alcanza</span>' : '<span class="zero">–</span>'}</td>${verPrecios() ? `<td class="num" style="white-space:nowrap">${r.falta ? (r.precio != null ? fBs(r.falta * r.precio) : '<span class="sub">sin costo</span>') : ''}</td>` : ''}</tr>`).join('')
       : `<tr><td colspan="10" class="empty">${fInvVer === 'fuera' ? 'Todo lo que hay en inventario ya está en la app.' : fInvVer === 'falta' ? 'Con el stock actual alcanza para todo lo solicitado. 🎉' : 'No hay insumos para mostrar.'}</td></tr>`) + '</tbody></table></div></section>';
