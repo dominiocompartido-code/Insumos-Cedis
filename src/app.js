@@ -1288,3 +1288,14 @@ function pintaMateriales(){
   tb.innerHTML = l.length ? l.map(m => `<tr class="${matActivo(m) ? '' : 'cerrada'}"><td class="code">${esc(m.codigo)}</td><td>${esc(m.descripcion)}${matActivo(m) ? '' : ' <span class="chip alerta">eliminado</span>'}</td><td class="num">${esc(m.unidad)}</td><td>${matActivo(m) ? celda(m) : `<span class="chip">${esc(m.categoria || 'General')}</span>`}</td>${verPrecios() ? `<td class="num">${rol.admin ? `<input type="number" min="0" step="0.01" class="qty precio" data-precio="${esc(m.codigo)}" value="${P[m.codigo] != null ? +P[m.codigo].toFixed(2) : ''}" placeholder="–" aria-label="Costo de ${esc(m.descripcion)}">` : (P[m.codigo] != null ? fBs(P[m.codigo]) : '<span class="sub">–</span>')}</td>` : ''}${edit ? `<td class="num">${acc(m)}</td>` : ''}</tr>`).join('')
     : '<tr><td colspan="5" class="empty">No hay materiales con ese nombre. Pruebe con otra palabra o con el código.</td></tr>';
 }
+
+// Tab o Enter en la cantidad → vuelve al buscador para agregar el siguiente insumo
+document.addEventListener('keydown', e => {
+  if((e.key !== 'Tab' && e.key !== 'Enter') || e.shiftKey || e.altKey || e.ctrlKey) return;
+  const t = e.target, destino = t.dataset?.nk != null ? 'nBuscar' : t.dataset?.kq != null ? 'kitBuscar' : null;
+  if(!destino || !$(destino)) return;
+  e.preventDefault();
+  t.blur();
+  const ir = () => { const b = $(destino); if(b){ b.focus(); b.select?.(); } };
+  ir(); setTimeout(ir, 30);
+});
