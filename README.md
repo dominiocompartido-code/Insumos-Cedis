@@ -10,6 +10,6 @@ App web (PWA) para que sucursales y áreas soliciten insumos de limpieza y ofici
 
 1. Editar los archivos de `src/`.
 2. `python3 build.py` (une todo en `app/index.html` y sube la versión de caché).
-3. Commit y push a `main` → Netlify publica solo.
+3. Commit y push a `main` → GitHub Pages publica `app/` solo (ver `.github/workflows/pages.yml`).
 
 `vista-previa.html` es una demo local con datos de ejemplo; no se sube.
