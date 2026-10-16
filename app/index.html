@@ -103,6 +103,9 @@ tr.tot td{font-weight:700;background:var(--surface-2)}
 .inv-res .kpi{border:1px solid var(--line);border-radius:12px;padding:10px 14px;display:flex;gap:12px;align-items:center;background:var(--surface-2)}
 .inv-res .kpi b{font-size:22px;white-space:nowrap}.inv-res .kpi span{font-size:12.5px;color:var(--muted);line-height:1.3}
 .inv-res .kpi.mal b{color:#c62828}.inv-res .kpi.bien b{color:#1b7f4b}
+.prov-in{width:130px;padding:6px 8px;font-size:13px;text-transform:uppercase}
+table.compra tbody td{background:var(--banda,transparent);color:#14231f;border-bottom-color:rgba(0,0,0,.06)}table.compra tbody td.code{color:#0b5d8a}table.compra td.prov{font-size:12.5px;font-weight:600}
+table.compra th.th-periodo{background:#fff200;color:#1f3864}
 table.inv .neg{color:#c62828}table.inv tr.inv-falta td{background:rgba(229,57,53,.05)}
 .ingreso-estado{display:flex;gap:12px;align-items:center;justify-content:space-between;flex-wrap:wrap;padding:12px 14px;border-radius:12px;border:1px solid var(--line);background:var(--surface-2)}
 .ingreso-estado.on{border-color:#9fd9b8;background:#eefaf3}
@@ -886,7 +889,10 @@ const matActivo = m => m && m.activo !== false;
 const puedeCatalogo = () => rol.admin || rol.grupos.some(g => ['OFC','CEDIS','SIN'].includes(g));
 const puedeAprobar = p => rol.admin || rol.grupos.includes(grupoDe(p));
 const corto = u => { const m = /^SUC-(\d+)$/.exec(u.id); return m ? m[1] : u.nombre.replace(/^SUC[\s.\-]*/i,'').split(/\s+/)[0].slice(0,6); };
-const normP = r => ({...r, ts:T(r.ts), confirmado_ts:T(r.confirmado_ts), entregado_ts:T(r.entregado_ts), anulado_ts:T(r.anulado_ts), tipo:r.tipo || 'Mensual', items:r.items || []});
+// nombre y U.M. siempre según el maestro actual (si se corrige un material, se ve corregido en todas las solicitudes)
+const vivo = l => Array.isArray(l) ? l.map(i => { const m = M[i.codigo]; return m ? {...i, descripcion:m.descripcion, unidad:m.unidad} : i; }) : l;
+const normP = r => ({...r, ts:T(r.ts), confirmado_ts:T(r.confirmado_ts), entregado_ts:T(r.entregado_ts), anulado_ts:T(r.anulado_ts), tipo:r.tipo || 'Mensual', items:vivo(r.items || []), items_original:vivo(r.items_original), items_entregados:vivo(r.items_entregados)});
+const refrescarNombres = () => { const f = p => ({...p, items:vivo(p.items), items_original:vivo(p.items_original), items_entregados:vivo(p.items_entregados)}); pedidos = pedidos.map(f); anuladas = anuladas.map(f); };
 let anuladas = [];
 const claves = (() => { try{ return JSON.parse(localStorage.getItem('fch_claves') || '{}'); }catch(e){ return {}; } })();
 const guardarClave = (id, c) => { claves[id] = c; try{ localStorage.setItem('fch_claves', JSON.stringify(claves)); }catch(e){} };
@@ -938,6 +944,7 @@ async function cargarBase(){
   GL = g.data; G = Object.fromEntries(GL.map(x => [x.id, x]));
   UL = u.data.sort((a,b) => ordU(a) - ordU(b) || a.nombre.localeCompare(b.nombre,'es')); U = Object.fromEntries(UL.map(x => [x.id, x]));
   ML = m.data; M = Object.fromEntries(ML.map(x => [x.codigo, x]));
+  if(typeof pedidos !== 'undefined' && pedidos.length) refrescarNombres();
 }
 function ordU(u){ const m = /^SUC-(\d+)$/.exec(u.id); return u.tipo !== 'Sucursal' ? 100000 + (u.tipo === 'CEDIS' ? 1000 : 0) : m ? +m[1] : 5000; }
 async function cargarPedidos(){
@@ -1755,6 +1762,7 @@ async function iniciar(){
   sb.channel('cambios')
     .on('postgres_changes', {event:'*', schema:'public', table:'pedidos'}, () => programar(cargarPedidos))
     .on('postgres_changes', {event:'*', schema:'public', table:'unidades'}, () => programar(async () => { await cargarBase(); render(); }))
+    .on('postgres_changes', {event:'*', schema:'public', table:'maestro'}, () => programar(async () => { await cargarBase(); render(); }))
     .subscribe();
   setInterval(cargarPedidos, 60000);
 }
@@ -2035,7 +2043,7 @@ async function cerrarSala(uid, activar, btn){
 let fMatQ = '', fMatCat = 'TODAS', ordMat = {k:'', dir:1};
 try{ ordMat = JSON.parse(localStorage.getItem('fch_ord_mat')) || ordMat; }catch(e){}
 const thOrd = (k, txt, cls) => `<th class="th-ord ${cls || ''}" data-ordmat="${k}" tabindex="0" title="Ordenar">${txt}<span class="flecha" data-fl="${k}"></span></th>`;
-const ORD_MAT = {codigo: m => +normCod(m.codigo) || 0, desc: m => normTxt(m.descripcion), um: m => normTxt(m.unidad), cat: m => normTxt(m.categoria || 'General'), costo: m => P[m.codigo] ?? null};
+const ORD_MAT = {codigo: m => +normCod(m.codigo) || 0, desc: m => normTxt(m.descripcion), um: m => normTxt(m.unidad), cat: m => normTxt(m.categoria || 'General'), prov: m => normTxt(m.proveedor || '~'), costo: m => P[m.codigo] ?? null};
 document.addEventListener('click', e => { const th = e.target.closest?.('[data-ordmat]'); if(!th) return; const k = th.dataset.ordmat;
   ordMat = ordMat.k === k ? (ordMat.dir === 1 ? {k, dir:-1} : {k:'', dir:1}) : {k, dir:1};
   try{ localStorage.setItem('fch_ord_mat', JSON.stringify(ordMat)); }catch(e){} pintaMateriales(); });
@@ -2046,7 +2054,7 @@ function vMateriales(){
     <div class="row"><input id="fMatQ" placeholder="Buscar por código o nombre…" value="${esc(fMatQ)}" style="flex:1;min-width:220px" autocomplete="off">
       <select id="fMatCat" style="width:auto"><option value="TODAS">Todas las categorías</option>${cats.map(c => `<option ${fMatCat === c ? 'selected' : ''}>${esc(c)}</option>`).join('')}</select></div>
     <p class="sub" id="matCuenta" style="margin:0"></p>
-    <div class="tbl-wrap"><table><thead><tr>${thOrd('codigo','Código')}${thOrd('desc','Material')}${thOrd('um','U.M.','num')}${thOrd('cat','Categoría')}${verPrecios() ? thOrd('costo','Costo unit.','num') : ''}${puedeCatalogo() ? '<th class="num">Acción</th>' : ''}</tr></thead><tbody id="matFilas"></tbody></table></div></section>`;
+    <div class="tbl-wrap"><table><thead><tr>${thOrd('codigo','Código')}${thOrd('desc','Material')}${thOrd('um','U.M.','num')}${thOrd('cat','Categoría')}${rol.admin || verTablero() ? thOrd('prov','Proveedor') : ''}${verPrecios() ? thOrd('costo','Costo unit.','num') : ''}${puedeCatalogo() ? '<th class="num">Acción</th>' : ''}</tr></thead><tbody id="matFilas"></tbody></table></div></section>`;
 }
 const catsMat = () => [...new Set(ML.map(m => m.categoria || 'General'))].sort((a,b) => a.localeCompare(b,'es'));
 async function cambiarCategoria(cod, val, el){
@@ -2130,7 +2138,9 @@ function pintaMateriales(){
   const cats = catsMat();
   const celda = m => edit ? `<select data-cat="${esc(m.codigo)}" aria-label="Categoría de ${esc(m.descripcion)}" style="width:auto;min-width:130px">${cats.map(c => `<option ${(m.categoria || 'General') === c ? 'selected' : ''}>${esc(c)}</option>`).join('')}<option value="__nueva">+ Nueva categoría…</option></select>` : `<span class="chip">${esc(m.categoria || 'General')}</span>`;
   const acc = m => matActivo(m) ? `<button class="btn btn-sm btn-danger" data-matcerrar="${esc(m.codigo)}">Eliminar</button>` : `<button class="btn btn-sm" data-matactivar="${esc(m.codigo)}">Reactivar</button>`;
-  tb.innerHTML = l.length ? l.map(m => `<tr class="${matActivo(m) ? '' : 'cerrada'}"><td class="code">${esc(m.codigo)}</td><td>${esc(m.descripcion)}${matActivo(m) ? '' : ' <span class="chip alerta">eliminado</span>'}</td><td class="num">${esc(m.unidad)}</td><td>${matActivo(m) ? celda(m) : `<span class="chip">${esc(m.categoria || 'General')}</span>`}</td>${verPrecios() ? `<td class="num">${rol.admin ? `<input type="number" min="0" step="0.01" class="qty precio" data-precio="${esc(m.codigo)}" value="${P[m.codigo] != null ? +P[m.codigo].toFixed(2) : ''}" placeholder="–" aria-label="Costo de ${esc(m.descripcion)}">` : (P[m.codigo] != null ? fBs(P[m.codigo]) : '<span class="sub">–</span>')}</td>` : ''}${edit ? `<td class="num">${acc(m)}</td>` : ''}</tr>`).join('')
+  if(rol.admin && !$('dlProv')){ const d = document.createElement('datalist'); d.id = 'dlProv'; document.body.append(d); }
+  if($('dlProv')) $('dlProv').innerHTML = [...new Set(ML.map(m => m.proveedor).filter(Boolean))].sort().map(v => `<option value="${esc(v)}">`).join('');
+  tb.innerHTML = l.length ? l.map(m => `<tr class="${matActivo(m) ? '' : 'cerrada'}"><td class="code">${esc(m.codigo)}</td><td>${esc(m.descripcion)}${matActivo(m) ? '' : ' <span class="chip alerta">eliminado</span>'}</td><td class="num">${esc(m.unidad)}</td><td>${matActivo(m) ? celda(m) : `<span class="chip">${esc(m.categoria || 'General')}</span>`}</td>${rol.admin ? `<td><input class="prov-in" list="dlProv" data-prov="${esc(m.codigo)}" value="${esc(m.proveedor || '')}" placeholder="—" maxlength="40" aria-label="Proveedor de ${esc(m.descripcion)}"></td>` : verTablero() ? `<td>${esc(m.proveedor || '—')}</td>` : ''}${verPrecios() ? `<td class="num">${rol.admin ? `<input type="number" min="0" step="0.01" class="qty precio" data-precio="${esc(m.codigo)}" value="${P[m.codigo] != null ? +P[m.codigo].toFixed(2) : ''}" placeholder="–" aria-label="Costo de ${esc(m.descripcion)}">` : (P[m.codigo] != null ? fBs(P[m.codigo]) : '<span class="sub">–</span>')}</td>` : ''}${edit ? `<td class="num">${acc(m)}</td>` : ''}</tr>`).join('')
     : '<tr><td colspan="5" class="empty">No hay materiales con ese nombre. Pruebe con otra palabra o con el código.</td></tr>';
 }
 
@@ -2148,48 +2158,60 @@ document.addEventListener('keydown', e => {
 
 // ---------- inventario vs. solicitudes: qué falta para abastecer ----------
 let fInvPend = true, fInvQ = '', fInvVer = 'falta', impInv = null;
+const TIPOS_INV = [['Sucursal','Sucursales'],['CEDIS','CEDIS'],['Oficina central','Oficina']];
+let fInvProv = 'TODOS';
+const provDe = c => (M[c]?.proveedor || '').trim() || 'SIN PROVEEDOR';
+const BANDAS = [['#dbe8f6','#c9dcf0','FFDBE8F6','FFC9DCF0'],['#d9f0c8','#c6e6ad','FFD9F0C8','FFC6E6AD'],['#fde9c8','#f9dbab','FFFDE9C8','FFF9DBAB'],['#ece0f5','#dfcdee','FFECE0F5','FFDFCDEE'],['#d5f0ee','#bfe6e3','FFD5F0EE','FFBFE6E3'],['#f7dcdc','#f0c8c8','FFF7DCDC','FFF0C8C8']];
 function datosInventario(){
-  const conf = {}, pend = {}, salasC = {}, info = {};
-  pedidos.forEach(p => { const dest = p.estado === 'Confirmada' ? conf : p.estado === 'Enviada' ? pend : null; if(!dest) return;
-    p.items.forEach(i => { const c = +i.cantidad || 0; if(!c) return; dest[i.codigo] = (dest[i.codigo] || 0) + c; info[i.codigo] ||= i; (salasC[i.codigo] ||= new Set()).add(p.unidad_id); }); });
-  const cods = new Set([...Object.keys(conf), ...Object.keys(pend), ...ML.filter(matActivo).map(m => m.codigo)]);
-  return [...cods].map(c => { const m = M[c] || info[c] || INVD[c] || {}, st = INV[c] || 0, cf = conf[c] || 0, pe = pend[c] || 0, nec = cf + (fInvPend ? pe : 0), saldo = st - nec;
-    return {codigo:c, descripcion:m.descripcion || c, unidad:m.unidad || '', stock:st, conf:cf, pend:pe, nec, saldo, falta:Math.max(0, -saldo), salas:salasC[c]?.size || 0, precio:P[c], fuera:!M[c] || !matActivo(M[c])}; })
+  const por = {}, salasC = {}, info = {};
+  pedidos.forEach(p => { const pend = p.estado === 'Enviada'; if(p.estado !== 'Confirmada' && !(pend && fInvPend)) return;
+    const tipo = U[p.unidad_id]?.tipo || 'Sucursal', k = TIPOS_INV.some(t => t[0] === tipo) ? tipo : 'Sucursal';
+    p.items.forEach(i => { const c = +i.cantidad || 0; if(!c) return; const x = por[i.codigo] ||= {conf:0, pend:0, tipos:{}}; if(pend) x.pend += c; else x.conf += c; x.tipos[k] = (x.tipos[k] || 0) + c; info[i.codigo] ||= i; (salasC[i.codigo] ||= new Set()).add(p.unidad_id); }); });
+  const cods = new Set([...Object.keys(por), ...ML.filter(matActivo).map(m => m.codigo)]);
+  return [...cods].map(c => { const m = M[c] || info[c] || {}, d = por[c] || {conf:0, pend:0, tipos:{}}, st = INV[c] || 0, nec = d.conf + d.pend, saldo = st - nec;
+    return {codigo:c, descripcion:m.descripcion || c, unidad:m.unidad || '', proveedor:provDe(c), tipos:d.tipos, stock:st, conf:d.conf, pend:d.pend, nec, saldo, falta:Math.max(0, -saldo), salas:salasC[c]?.size || 0, precio:P[c], fuera:!M[c] || !matActivo(M[c])}; })
     .filter(r => !r.fuera && (r.nec > 0 || r.stock > 0));
 }
+// orden del formato de compra: por proveedor (sin proveedor al final) y luego por insumo
+const ordenCompra = (a, b) => (a.proveedor === 'SIN PROVEEDOR') - (b.proveedor === 'SIN PROVEEDOR') || a.proveedor.localeCompare(b.proveedor, 'es') || a.descripcion.localeCompare(b.descripcion, 'es');
+function bandasProv(l){ const idx = {}; let n = 0; l.forEach(r => { if(!(r.proveedor in idx)) idx[r.proveedor] = n++ % BANDAS.length; }); return idx; }
 function vInventario(){
   const todos = datosInventario(), q = normTxt(fInvQ).trim().split(/\s+/).filter(Boolean);
-  const l = todos.filter(r => (fInvVer === 'todos' || (fInvVer === 'fuera' ? r.fuera && r.stock > 0 : fInvVer === 'falta' ? r.falta > 0 : r.nec > 0)) && (!q.length || q.every(w => normTxt(r.descripcion + ' ' + r.codigo).includes(w))))
-    .sort((a, b) => (b.falta > 0) - (a.falta > 0) || b.falta * (b.precio || 0) - a.falta * (a.precio || 0) || b.falta - a.falta || a.descripcion.localeCompare(b.descripcion, 'es'));
+  const provs = [...new Set(todos.map(r => r.proveedor))].sort((a, b) => (a === 'SIN PROVEEDOR') - (b === 'SIN PROVEEDOR') || a.localeCompare(b, 'es'));
+  const l = todos.filter(r => (fInvVer === 'todos' || (fInvVer === 'falta' ? r.falta > 0 : r.nec > 0)) && (fInvProv === 'TODOS' || r.proveedor === fInvProv) && (!q.length || q.every(w => normTxt(r.descripcion + ' ' + r.codigo + ' ' + r.proveedor).includes(w)))).sort(ordenCompra);
   const conNec = todos.filter(r => r.nec > 0), faltan = conNec.filter(r => r.falta > 0), valor = faltan.reduce((a, r) => a + r.falta * (r.precio || 0), 0), sinP = faltan.filter(r => r.precio == null).length;
-  const fq = n => (+n).toLocaleString('es-BO', {maximumFractionDigits:2});
+  const fq = n => (+n).toLocaleString('es-BO', {maximumFractionDigits:2}), band = bandasProv(l); let prev = null, alt = 0;
   const cuando = INV_INFO ? `Inventario cargado el ${fFH(new Date(INV_INFO.ts).getTime())}${INV_INFO.archivo ? ' · ' + esc(INV_INFO.archivo) : ''}` : 'Todavía no se cargó el inventario';
-  return `<section class="panel"><div class="panel-head"><div><h2>Inventario y necesidad de compra</h2><p class="sub">${cuando}. Se resta del stock lo confirmado que falta entregar${fInvPend ? ' y lo que está por confirmar' : ''}.</p></div>
+  const sinProv = conNec.filter(r => r.proveedor === 'SIN PROVEEDOR').length;
+  return `<section class="panel"><div class="panel-head"><div><h2>Necesidad de compra</h2><p class="sub">${cuando}. Total del período = lo confirmado que falta entregar${fInvPend ? ' + lo que está por confirmar' : ''}; a comprar = total del período − stock.</p></div>
     <div class="row">${rol.admin ? '<button class="btn btn-sm btn-primary" id="btnInvSubir">⬆ Cargar inventario</button><input type="file" id="fileInv" accept=".xlsx,.xls,.csv" hidden>' : ''}<button class="btn btn-sm" id="btnInvExcel" ${faltan.length ? '' : 'disabled'}>⬇ Excel de compra</button></div></div>
     <div class="inv-res"><div class="kpi ${faltan.length ? 'mal' : 'bien'}"><b>${faltan.length}</b><span>de ${conNec.length} insumos solicitados<br>no alcanzan con el stock</span></div>
-      <div class="kpi"><b>${fBs(valor)}</b><span>valor a comprar${sinP ? `<br>${plural(sinP, 'insumo sin costo', 'insumos sin costo')}` : ''}</span></div>
+      ${verPrecios() ? `<div class="kpi"><b>${fBs(valor)}</b><span>valor a comprar${sinP ? `<br>${plural(sinP, 'insumo sin costo', 'insumos sin costo')}` : ''}</span></div>` : ''}
       <div class="kpi bien"><b>${conNec.length - faltan.length}</b><span>insumos cubiertos<br>en su totalidad</span></div></div>
-    <div class="row"><input id="fInvQ" placeholder="Buscar insumo o código…" value="${esc(fInvQ)}" style="flex:1;min-width:200px" autocomplete="off">
+    ${sinProv && rol.admin ? `<p class="sub" style="margin:0"><span class="chip alerta">${plural(sinProv, 'insumo sin proveedor', 'insumos sin proveedor')}</span> Asígnelo en la pestaña Materiales, columna Proveedor.</p>` : ''}
+    <div class="row"><input id="fInvQ" placeholder="Buscar insumo, código o proveedor…" value="${esc(fInvQ)}" style="flex:1;min-width:200px" autocomplete="off">
+      <select id="fInvProvSel" style="width:auto"><option value="TODOS">Todos los proveedores</option>${provs.map(v => `<option value="${esc(v)}" ${fInvProv === v ? 'selected' : ''}>${esc(v === 'SIN PROVEEDOR' ? 'Sin proveedor' : v)}</option>`).join('')}</select>
       <select id="fInvVer" style="width:auto"><option value="falta" ${fInvVer === 'falta' ? 'selected' : ''}>Solo lo que falta comprar</option><option value="nec" ${fInvVer === 'nec' ? 'selected' : ''}>Todo lo solicitado</option><option value="todos" ${fInvVer === 'todos' ? 'selected' : ''}>Todos los materiales de la app</option></select>
       <label class="recordar" style="margin:0"><input type="checkbox" id="fInvPend" ${fInvPend ? 'checked' : ''}> Incluir solicitudes por confirmar</label></div>
-    <div class="tbl-wrap"><table class="inv"><thead><tr><th>Código</th><th>Insumo</th><th class="num">U.M.</th><th class="num">Stock</th><th class="num">Confirmado<br>por entregar</th><th class="num">Por<br>confirmar</th><th class="num">Necesidad</th><th class="num">Saldo</th><th class="num">A comprar</th>${verPrecios() ? '<th class="num">Valor compra</th>' : ''}</tr></thead><tbody>` +
-    (l.length ? l.map(r => `<tr class="${r.falta ? 'inv-falta' : ''}"><td class="code">${esc(r.codigo)}</td><td>${esc(r.descripcion)}${r.salas ? `<div class="sub" style="margin:0">${plural(r.salas, 'sala o área', 'salas y áreas')}</div>` : ''}</td><td class="num">${esc(r.unidad)}</td>
-      <td class="num">${fq(r.stock)}</td><td class="num">${r.conf ? fq(r.conf) : '<span class="zero">–</span>'}</td><td class="num ${fInvPend ? '' : 'sub'}">${r.pend ? fq(r.pend) : '<span class="zero">–</span>'}</td><td class="num"><strong>${fq(r.nec)}</strong></td>
-      <td class="num ${r.saldo < 0 ? 'neg' : ''}">${fq(r.saldo)}</td><td class="num">${r.falta ? `<strong class="neg">${fq(r.falta)}</strong>` : r.nec ? '<span class="chip Entregada">alcanza</span>' : '<span class="zero">–</span>'}</td>${verPrecios() ? `<td class="num" style="white-space:nowrap">${r.falta ? (r.precio != null ? fBs(r.falta * r.precio) : '<span class="sub">sin costo</span>') : ''}</td>` : ''}</tr>`).join('')
-      : `<tr><td colspan="10" class="empty">${fInvVer === 'fuera' ? 'Todo lo que hay en inventario ya está en la app.' : fInvVer === 'falta' ? 'Con el stock actual alcanza para todo lo solicitado. 🎉' : 'No hay insumos para mostrar.'}</td></tr>`) + '</tbody></table></div></section>';
+    <div class="tbl-wrap"><table class="inv compra"><thead><tr><th>Insumo</th><th>Proveedor</th><th>Cod. int.</th><th class="num">U.M.</th>${TIPOS_INV.map(t => `<th class="num">${t[1]}</th>`).join('')}<th class="num th-periodo">Total período</th><th class="num">Stock</th><th class="num">A comprar</th></tr></thead><tbody>` +
+    (l.length ? l.map(r => { if(r.proveedor !== prev){ alt = 0; prev = r.proveedor; } else alt = 1 - alt; const bg = BANDAS[band[r.proveedor]][alt];
+      return `<tr style="--banda:${bg}"><td>${esc(r.descripcion)}</td><td class="prov">${esc(r.proveedor === 'SIN PROVEEDOR' ? '—' : r.proveedor)}</td><td class="code">${esc(r.codigo)}</td><td class="num">${esc(r.unidad)}</td>
+      ${TIPOS_INV.map(t => `<td class="num">${fq(r.tipos[t[0]] || 0)}</td>`).join('')}<td class="num"><strong>${fq(r.nec)}</strong></td><td class="num">${fq(r.stock)}</td><td class="num">${r.falta ? `<strong class="neg">${fq(r.falta)}</strong>` : '0'}</td></tr>`; }).join('')
+      : `<tr><td colspan="10" class="empty">${fInvVer === 'falta' ? 'Con el stock actual alcanza para todo lo solicitado. 🎉' : 'No hay insumos para mostrar.'}</td></tr>`) + '</tbody></table></div></section>';
 }
 function excelCompra(){
-  const l = datosInventario().filter(r => r.falta > 0).sort((a, b) => a.descripcion.localeCompare(b.descripcion, 'es'));
-  const W = XL.libro(), h = W.hoja('Necesidad de compra'), cab = {b:true, sz:10, color:'FFFFFFFF', fill:'FF1F3864', h:'center', v:'center', wrap:true, bt:'thin', bb:'thin', bl:'thin', br:'thin'};
-  const cols = ['Código','Insumo','U.M.','Stock','Confirmado por entregar','Por confirmar','Necesidad','A comprar'].concat(verPrecios() ? ['Costo unit. (Bs)','Valor (Bs)'] : []);
-  cols.forEach((t, c) => h.set(0, c, t, cab)); [9,40,7,10,13,11,11,11,12,13].forEach((w, c) => h.anchos[c] = w); h.altos[0] = 30;
-  l.forEach((r, k) => { const s = (hh, ex = {}) => ({sz:10, h:hh, v:'center', bt:'thin', bb:'thin', bl:'thin', br:'thin', ...ex}), y = k + 1;
-    [r.codigo, r.descripcion, r.unidad].forEach((v, c) => h.set(y, c, v, s(c === 1 ? 'left' : 'center')));
-    [r.stock, r.conf, fInvPend ? r.pend : 0, r.nec].forEach((v, c) => h.set(y, 3 + c, +v, s('center')));
-    h.set(y, 7, +r.falta, s('center', {b:true, fill:'FFFFF2CC'}));
-    if(verPrecios()){ h.set(y, 8, r.precio != null ? Math.round(r.precio * 100) / 100 : '', s('right', {fmt:1})); h.set(y, 9, r.precio != null ? null : '', s('right', {fmt:1}), r.precio != null ? `H${y + 1}*I${y + 1}` : undefined); } });
-  if(verPrecios() && l.length){ const y = l.length + 1; h.set(y, 8, 'Total', {b:true, sz:10, h:'right'}); h.set(y, 9, null, {b:true, sz:10, h:'right', fmt:1, bt:'thin'}, `SUM(J2:J${y})`); }
-  h.freeze = 1; h.filtro = `A1:${verPrecios() ? 'J' : 'H'}${l.length + 1}`;
+  const l = datosInventario().filter(r => r.falta > 0 && (fInvProv === 'TODOS' || r.proveedor === fInvProv)).sort(ordenCompra), band = bandasProv(l);
+  const W = XL.libro(), h = W.hoja('Necesidad de compra'), borde = {bt:'thin', bb:'thin', bl:'thin', br:'thin'};
+  const cab = {b:true, sz:10, color:'FFFFFFFF', fill:'FF4F81BD', h:'left', v:'center', ...borde};
+  const cols = ['Insumo','PROVEEDOR','COD INT','U.M.','Sucursales','CEDIS','Oficina','Total Período','Stock','A COMPRAR'];
+  cols.forEach((t, c) => h.set(0, c, t, c === 7 ? {...cab, fill:'FFFFFF00', color:'FF1F3864'} : cab)); [46,16,10,7,11,9,9,13,9,12].forEach((w, c) => h.anchos[c] = w); h.altos[0] = 20;
+  let prev = null, alt = 0;
+  l.forEach((r, k) => { if(r.proveedor !== prev){ alt = 0; prev = r.proveedor; } else alt = 1 - alt; const fill = BANDAS[band[r.proveedor]][2 + alt], y = k + 1;
+    const s = (hh, ex = {}) => ({sz:10, h:hh, v:'center', fill, ...borde, ...ex});
+    h.set(y, 0, r.descripcion, s('left')); h.set(y, 1, r.proveedor === 'SIN PROVEEDOR' ? '' : r.proveedor, s('left')); h.set(y, 2, r.codigo, s('left')); h.set(y, 3, r.unidad, s('left'));
+    TIPOS_INV.forEach((t, c) => h.set(y, 4 + c, +(r.tipos[t[0]] || 0), s('right')));
+    h.set(y, 7, null, s('right'), `SUM(E${y + 1}:G${y + 1})`); h.set(y, 8, +r.stock, s('right')); h.set(y, 9, null, s('right', {b:true}), `MAX(0,H${y + 1}-I${y + 1})`); });
+  h.freeze = 1; h.filtro = `A1:J${l.length + 1}`;
   descargar(W.generar(), `Necesidad_compra_insumos_${hoyISO()}.xlsx`);
 }
 // carga de inventario: Excel con columnas de código y stock (y costo opcional), o el reporte del sistema
@@ -2210,7 +2232,7 @@ function prepararInventario(filas, nombre){
   const datos = hi >= 0 ? filas.slice(hi + 1) : filas;
   let cc = cab.findIndex(t => /cod/.test(t) && !/barra/.test(t)), cs = cab.findIndex(t => /stock|saldo|exist|fisico|disponible/.test(t)), cp = cab.findIndex(t => /costo|precio|c\.?\s*u|unit/.test(t));
   if(cs < 0) cs = cab.findIndex(t => /^cant|cantidad/.test(t));
-  let cd = cab.findIndex(t => /descrip|nombre|articulo|item|producto/.test(t)), cu = cab.findIndex(t => /^u\.?\s*m|unidad|medida/.test(t));
+  let cd = cab.findIndex(t => /descrip|nombre|articulo|item|producto/.test(t)), cu = cab.findIndex(t => /^u\.?\s*m|unidad|medida/.test(t)), cv = cab.findIndex(t => /proveedor/.test(t));
   if(cc < 0){ let best = 0; for(let i = 0; i < ancho; i++){ const k = datos.filter(f => M[normCod(f[i])]).length; if(k > best){ best = k; cc = i; } } }
   if(cc >= 0 && cs < 0){ for(let i = cc + 1; i < ancho; i++){ if(datos.filter(f => num(f[i]) != null).length > datos.length * .6){ cs = i; break; } } }
   if(cc >= 0 && cs >= 0 && cp < 0){ for(let i = cs + 1; i < ancho; i++){ if(datos.filter(f => num(f[i]) != null).length > datos.length * .6){ cp = i; break; } } }
@@ -2219,7 +2241,7 @@ function prepararInventario(filas, nombre){
   if(cu < 0){ for(let i = 0; i < ancho; i++){ if([cc, cs, cp, cd].includes(i)) continue; const v = txt(i); if(v.length && v.filter(x => /^[a-z]{2,4}\.?$/i.test(x)).length > v.length * .7){ cu = i; break; } } }
   if(cc < 0 || cs < 0){ toast('No reconocí las columnas de código y stock. El archivo debe tener una columna "Código" y otra "Stock" (o "Saldo").'); return; }
   const por = {};
-  datos.forEach(f => { const c = normCod(f[cc]), st = num(f[cs]); if(!/^\d{3,7}$/.test(c) || st == null) return; const x = por[c] ||= {codigo:c, stock:0, costo:null, descripcion:cd >= 0 ? String(f[cd] || '').trim() : '', unidad:cu >= 0 ? String(f[cu] || '').trim() : ''}; x.stock += st; const pc = cp >= 0 ? num(f[cp]) : null; if(pc != null && pc > 0) x.costo = pc; });
+  datos.forEach(f => { const c = normCod(f[cc]), st = num(f[cs]); if(!/^\d{3,7}$/.test(c) || st == null) return; const x = por[c] ||= {codigo:c, stock:0, costo:null, descripcion:cd >= 0 ? String(f[cd] || '').trim() : '', unidad:cu >= 0 ? String(f[cu] || '').trim() : '', proveedor:cv >= 0 ? String(f[cv] || '').trim() : ''}; x.stock += st; const pc = cp >= 0 ? num(f[cp]) : null; if(pc != null && pc > 0) x.costo = pc; });
   const items = Object.values(por);
   if(!items.length){ toast('El archivo no tiene filas con código y stock.'); return; }
   impInv = {items, nombre, conCosto: cp >= 0};
@@ -2237,7 +2259,7 @@ async function aplicarInventario(btn){
   btn.disabled = false;
   if(error){ toast('No se pudo cargar: ' + errMsg(error)); return; }
   $('mInv').hidden = true; toast(`Inventario actualizado: ${plural(data ?? impInv.items.length, 'insumo', 'insumos')}.`);
-  await cargarInventario(); if($('invCostos')?.checked) await cargarPrecios(); render();
+  await cargarInventario(); if($('invCostos')?.checked) await cargarPrecios(); if(impInv.items.some(i => i.proveedor)){ try{ await cargarBase(); }catch(_){} } render();
 }
 document.addEventListener('click', e => {
   const t = e.target;
@@ -2251,6 +2273,7 @@ document.addEventListener('change', e => {
   if(t.id === 'fileInv' && t.files[0]){ leerInventario(t.files[0]); t.value = ''; }
   if(t.id === 'fInvPend'){ fInvPend = t.checked; render(); }
   if(t.id === 'fInvVer'){ fInvVer = t.value; render(); }
+  if(t.id === 'fInvProvSel'){ fInvProv = t.value; render(); }
 });
 document.addEventListener('input', e => { if(e.target.id === 'fInvQ'){ fInvQ = e.target.value; render(); } });
 
@@ -2276,6 +2299,14 @@ document.addEventListener('keydown', e => {
     if(sig){ sig.focus(); sig.select?.(); sig.scrollIntoView({block:'nearest'}); }
     else if(paso < 0){ const b = $(qtyAttr === 'nk' ? 'nBuscar' : 'kitBuscar'); if(b) b.focus(); }
   }
+});
+
+document.addEventListener('change', async e => {
+  const t = e.target, cod = t.dataset?.prov; if(!cod) return;
+  const m = M[cod]; if(!m) return; const v = t.value.trim().toUpperCase(); if(v === (m.proveedor || '')) return;
+  t.disabled = true; const {error} = await sb.rpc('guardar_proveedor', {p_codigo:cod, p_proveedor:v}); t.disabled = false;
+  if(error){ toast('No se pudo guardar: ' + errMsg(error)); t.value = m.proveedor || ''; return; }
+  m.proveedor = v || null; t.value = v; toast(v ? `${m.descripcion}: proveedor ${v}.` : `${m.descripcion}: sin proveedor.`);
 });
 
 </script>
