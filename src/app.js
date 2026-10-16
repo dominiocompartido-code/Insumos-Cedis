@@ -118,7 +118,7 @@ const planoTabs = ts => ts.flatMap(([id,l,sub]) => sub ? sub : [[id,l]]);
 let subAbierto = false;
 function actualizarInsignia(c){
   const n = (c.bandeja || 0) + (rol.admin ? (c.entregar || 0) : 0);
-  try{ document.title = (n ? `(${n}) ` : '') + 'Insumos de Limpieza'; }catch(e){}
+  try{ document.title = (n ? `(${n}) ` : '') + 'Farmacias Chávez'; }catch(e){}
   try{ if(navigator.setAppBadge){ n ? navigator.setAppBadge(n) : navigator.clearAppBadge(); } }catch(e){}
 }
 function contadores(){

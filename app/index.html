@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="theme-color" content="#05B1EA">
-<title>Insumos de Limpieza</title>
+<title>Farmacias Chávez</title>
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="icon" type="image/png" href="favicon.png">
 <link rel="apple-touch-icon" href="apple-touch-icon.png">
@@ -939,7 +939,7 @@ const planoTabs = ts => ts.flatMap(([id,l,sub]) => sub ? sub : [[id,l]]);
 let subAbierto = false;
 function actualizarInsignia(c){
   const n = (c.bandeja || 0) + (rol.admin ? (c.entregar || 0) : 0);
-  try{ document.title = (n ? `(${n}) ` : '') + 'Insumos de Limpieza'; }catch(e){}
+  try{ document.title = (n ? `(${n}) ` : '') + 'Farmacias Chávez'; }catch(e){}
   try{ if(navigator.setAppBadge){ n ? navigator.setAppBadge(n) : navigator.clearAppBadge(); } }catch(e){}
 }
 function contadores(){
