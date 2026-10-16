@@ -1,9 +1,9 @@
 // ---------- reporte de dotación en el formato del Excel "Dotacion Sucursales" ----------
 const MUELLES_R = ['DESP-01','DESP-02','DESP-03','DESP-04','DESP-05'];
 function datosDotacion(ciclo, alcance){
-  const incl = p => cicloDe(p.ts) === ciclo && (p.estado === 'Confirmada' || p.estado === 'Entregada') && U[p.unidad_id] && (alcance === 'todo' || U[p.unidad_id].tipo === 'Sucursal');
+  const incl = p => cicloDe(p.ts) === ciclo && (p.estado === 'Confirmada' || (fPrepEst === 'ciclo' && p.estado === 'Entregada')) && U[p.unidad_id] && (alcance === 'todo' || U[p.unidad_id].tipo === 'Sucursal');
   const porU = {};
-  pedidos.filter(incl).forEach(p => { const m = porU[p.unidad_id] ||= {}; p.items.forEach(i => { const c = +i.cantidad || 0; if(!c) return; const x = m[i.codigo] ||= {codigo:i.codigo, descripcion:M[i.codigo]?.descripcion || i.descripcion, unidad:M[i.codigo]?.unidad || i.unidad, cantidad:0}; x.cantidad += c; }); });
+  pedidos.filter(incl).forEach(p => { const m = porU[p.unidad_id] ||= {}; (p.estado === 'Entregada' && p.items_entregados ? p.items_entregados : p.items).forEach(i => { const c = +i.cantidad || 0; if(!c) return; const x = m[i.codigo] ||= {codigo:i.codigo, descripcion:M[i.codigo]?.descripcion || i.descripcion, unidad:M[i.codigo]?.unidad || i.unidad, cantidad:0}; x.cantidad += c; }); });
   const muelleDe = u => MUELLES_R.includes(u.muelle) ? u.muelle : 'SIN MUELLE';
   const ordM = m => m === 'SIN MUELLE' ? 99 : MUELLES_R.indexOf(m);
   const unidades = Object.keys(porU).map(id => U[id]).sort((a,b) => ordM(muelleDe(a)) - ordM(muelleDe(b)) || ordU(a) - ordU(b) || a.nombre.localeCompare(b.nombre,'es'))
