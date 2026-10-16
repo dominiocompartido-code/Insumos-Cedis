@@ -113,10 +113,10 @@ function estadoCiclo(uid, c){
 }
 const inicioDatos = () => pedidos.length ? Math.min(...pedidos.map(p => cicloDe(p.ts))) : cicloActivo();
 const contarSinDotar = (est, ciclos, ini) => est.slice(0, 5).filter((e, i) => ciclos[i] >= ini && e !== 'Entregada').length;
-const gruposCob = () => rol.admin ? GL : GL.filter(g => rol.grupos.includes(g.id));
-const unidadesCob = (tipo, gr) => UL.filter(u => u.activa && (rol.admin || rol.grupos.includes(u.grupo_id)) && (!rol.admin || tipo === 'TODOS' || u.tipo === tipo) && (gr === 'TODOS' || u.grupo_id === gr));
+const gruposCob = () => rol.admin || rol.consulta ? GL : GL.filter(g => rol.grupos.includes(g.id));
+const unidadesCob = (tipo, gr) => UL.filter(u => u.activa && (rol.admin || rol.consulta || rol.grupos.includes(u.grupo_id)) && (!(rol.admin || rol.consulta) || tipo === 'TODOS' || u.tipo === tipo) && (gr === 'TODOS' || u.grupo_id === gr));
 function vCobertura(){
-  if(!rol.admin && fCobGr !== 'TODOS' && !rol.grupos.includes(fCobGr)) fCobGr = 'TODOS';
+  if(!rol.admin && !rol.consulta && fCobGr !== 'TODOS' && !rol.grupos.includes(fCobGr)) fCobGr = 'TODOS';
   const c = cicloActivo(), ciclos = [5,4,3,2,1,0].map(k => cicloMenos(c, k));
   const us = unidadesCob(fCobTipo, fCobGr).filter(u => coincideSala(u, fCobQ)), gs = gruposCob();
   const ini = inicioDatos();

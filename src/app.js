@@ -80,7 +80,7 @@ function bannerPush(){
   return `<div class="notice info push-box"><span>🔔 <strong>Active las notificaciones</strong> para enterarse ${aprob ? 'de las solicitudes nuevas' : 'cuando confirmen o entreguen sus solicitudes'} aunque la app esté cerrada.</span><span style="display:flex;gap:6px"><button class="btn btn-sm" id="btnPushNo">Ahora no</button><button class="btn btn-sm btn-primary" id="btnPush">Activar</button></span></div>`;
 }
 let KIT = [], P = {};
-const verPrecios = () => rol.admin || rol.grupos.length > 0;
+const verPrecios = () => rol.admin || !!rol.consulta || rol.grupos.length > 0;
 let INV = {}, INVD = {}, INV_INFO = null;
 async function cargarInventario(){ INV = {}; INVD = {}; INV_INFO = null; if(!verTablero()) return;
   try{ const [a, b] = await Promise.all([sb.from('inventario').select('*'), sb.from('inventario_cargas').select('*').order('ts', {ascending:false}).limit(1)]);
@@ -112,10 +112,12 @@ async function cargarPedidos(){
 let recarga; const programar = fn => { clearTimeout(recarga); recarga = setTimeout(fn, 300); };
 
 // ---------- roles y pestañas ----------
-const verTablero = () => rol.admin || rol.grupos.some(g => g === 'OFC' || g === 'CEDIS');
-const esJefatura = () => !rol.admin && verTablero();
+const esConsulta = () => !rol.admin && !!rol.consulta && !rol.grupos.length;
+const verTablero = () => rol.admin || !!rol.consulta || rol.grupos.some(g => g === 'OFC' || g === 'CEDIS');
+const esJefatura = () => !rol.admin && !esConsulta() && verTablero();
 const SUB_TABLERO = [['tablero','Resumen'],['bandeja','Por confirmar'],['preparacion','Preparación'],['entregar','Por entregar']];
 function tabsDisponibles(){
+  if(esConsulta()) return [['tablero','Tablero', SUB_TABLERO.filter(x => x[0] !== 'bandeja')], ['inventario','Inventario'], ['cobertura','Cobertura'], ['todos','Todos'], ['materiales','Materiales']];
   const t = [['solicitar','Solicitar']]; if(rol.admin || !rol.grupos.length) t.push(['seguimiento','Seguimiento']);
   if(rol.admin) t.push(['tablero','Tablero', SUB_TABLERO], ['inventario','Inventario'], ['cobertura','Cobertura'], ['todos','Todos']);
   else if(verTablero()) t.push(['tablero','Tablero', SUB_TABLERO], ['inventario','Inventario'], ['grupo','Mi grupo'], ['cobertura','Cobertura'], ['todos','Todos']);
@@ -157,7 +159,7 @@ addEventListener('resize', ajustarAltoHdr); setTimeout(ajustarAltoHdr, 0); setTi
 function vBloqueo(){
   if(!EXIGIR) return '';
   if(!sesion) return `<section class="panel bloqueo"><div class="bloqueo-in"><div class="bloqueo-ico">🔐</div><h2>Ingrese con su usuario</h2><p class="sub">Para enviar o ver solicitudes de insumos, ingrese con el correo y la contraseña de su sala o área.</p><button class="btn btn-primary" data-ir-login="1">Ingresar</button><p class="sub" style="margin-top:14px">¿No tiene usuario? Pídalo a Logística CEDIS.</p></div></section>`;
-  if(!rol.admin && !rol.grupos.length && !salaUsuario()) return `<section class="panel bloqueo"><div class="bloqueo-in"><div class="bloqueo-ico">⏳</div><h2>Su usuario no está vinculado a una sala</h2><p class="sub">Ingresó como <strong>${esc(sesion.user?.email || '')}</strong>, pero todavía no está asignado a ninguna sucursal o área. Comuníquese con Logística CEDIS.</p><button class="btn" data-ir-login="1">Salir</button></div></section>`;
+  if(!rol.admin && !rol.consulta && !rol.grupos.length && !salaUsuario()) return `<section class="panel bloqueo"><div class="bloqueo-in"><div class="bloqueo-ico">⏳</div><h2>Su usuario no está vinculado a una sala</h2><p class="sub">Ingresó como <strong>${esc(sesion.user?.email || '')}</strong>, pero todavía no está asignado a ninguna sucursal o área. Comuníquese con Logística CEDIS.</p><button class="btn" data-ir-login="1">Salir</button></div></section>`;
   return '';
 }
 document.addEventListener('click', e => { if(e.target.closest?.('[data-ir-login]')) $('btnLogin').click(); });
@@ -623,18 +625,20 @@ document.addEventListener('click', e => { const b = e.target.closest?.('[data-pl
   const sec = b.closest('section'); sec.classList.toggle('plegado', pleg[k]); b.setAttribute('aria-expanded', !pleg[k]); b.title = pleg[k] ? 'Mostrar' : 'Ocultar'; });
 // ---------- roles y permisos ----------
 let ADMINS = [];
-async function cargarAdmins(){ try{ const {data} = await sb.rpc('listar_admins'); ADMINS = data || []; }catch(e){ ADMINS = []; } }
+async function cargarAdmins(){ try{ const {data} = await sb.rpc('listar_roles'); ADMINS = (data || []).map(a => ({...a, rol:a.rol || 'logistica'})); }catch(e){ ADMINS = []; } }
 function vRoles(){
   const jef = GL.filter(g => g.id === 'OFC' || g.id === 'CEDIS'), sup = GL.filter(g => g.id !== 'OFC' && g.id !== 'CEDIS' && g.id !== 'SIN');
   const persona = (n, e) => `<span class="rol-p"><strong>${esc(n || '—')}</strong>${e ? `<span class="sub">${esc(e)}</span>` : '<span class="chip alerta">sin correo</span>'}</span>`;
   const act = UL.filter(u => u.activa), conU = act.filter(u => u.correo).length;
   const fila = (ico, nombre, permisos, quien) => `<tr><td class="rol-n"><span class="rol-ico">${ico}</span><strong>${nombre}</strong></td><td><ul class="rol-perm">${permisos.map(x => `<li>${x}</li>`).join('')}</ul></td><td>${quien}</td></tr>`;
-  const adm = ADMINS.filter(a => a.activo);
+  const adm = ADMINS.filter(a => a.activo && a.rol === 'logistica'), cons = ADMINS.filter(a => a.activo && a.rol === 'consulta');
+  const chipP = (a, r) => `<span class="rol-p"><strong>${esc(a.nombre || a.email.split('@')[0])}</strong><span class="sub">${esc(a.email)}</span>${a.email !== (sesion?.user?.email || '').toLowerCase() ? `<button class="x-mini" data-quitar-rol="${esc(a.email)}" data-r="${r}" title="Quitar rol">✕</button>` : ''}</span>`;
+  const addP = r => `<div class="row" style="margin-top:6px;gap:6px"><input id="nuevo-${r}" type="email" placeholder="correo@farmaciaschavez.com.bo" style="max-width:240px"><button class="btn btn-sm" data-add-rol="${r}">+ Agregar</button></div>`;
   return `<section class="panel${plegCls('roles')}"><div class="panel-head"><div><h2>Roles y permisos ${plegBtn('roles')}</h2><p class="sub">Qué puede hacer cada rol y quién lo tiene. El rol se asigna por el correo con el que la persona ingresa.</p></div></div>
     <div class="tbl-wrap"><table class="roles"><thead><tr><th>Rol</th><th>Puede</th><th>Quiénes</th></tr></thead><tbody>
     ${fila('🚚', 'Logística CEDIS', ['Todo lo de Jefatura', 'Marcar entregas, N° de traspaso y entregas parciales', 'Cargar inventario y editar costos y proveedores', 'Configuración: salas, aprobadores, usuarios y kit'],
-      adm.map(a => `<span class="rol-p"><strong>${esc(a.nombre || a.email.split('@')[0])}</strong><span class="sub">${esc(a.email)}</span>${a.email !== (sesion?.user?.email || '').toLowerCase() ? `<button class="x-mini" data-quitar-admin="${esc(a.email)}" title="Quitar rol de logística">✕</button>` : ''}</span>`).join('') +
-      `<div class="row" style="margin-top:6px;gap:6px"><input id="nuevoAdmin" type="email" placeholder="correo@farmaciaschavez.com.bo" style="max-width:240px"><button class="btn btn-sm" id="btnAddAdmin">+ Agregar</button></div>`)}
+      adm.map(a => chipP(a, 'logistica')).join('') + addP('logistica'))}
+    ${fila('👁️', 'Consulta', ['Ver todo: Tablero, preparación, por entregar, Inventario, Cobertura de todas las salas, Todos y costos', 'Descargar reportes y el Excel de compra', 'No confirma, no entrega, no pide y no edita nada'], cons.map(a => chipP(a, 'consulta')).join('') + addP('consulta'))}
     ${fila('📊', 'Jefatura', ['Confirmar o rechazar las solicitudes de su grupo', 'Ver Tablero completo: preparación y por entregar (solo consulta)', 'Ver Inventario, necesidad de compra, Todos y costos', 'Crear y editar materiales'], jef.map(g => persona(g.aprobador + ' · ' + g.nombre, g.aprobador_email)).join(''))}
     ${fila('✅', 'Supervisora (aprobadora)', ['Confirmar o rechazar las solicitudes de su grupo', 'Ver Mi grupo y Cobertura de sus salas', 'Ver costos'], sup.map(g => persona(g.aprobador, g.aprobador_email)).join(''))}
     ${fila('🏪', 'Sala o área', ['Enviar solicitudes solo para su sala', 'Ver el seguimiento de sus solicitudes', 'Anular una solicitud mientras no esté confirmada'], `<span class="rol-p"><strong>${conU} de ${act.length}</strong><span class="sub">salas y áreas con usuario</span></span>`)}
@@ -642,18 +646,21 @@ function vRoles(){
     </tbody></table></div>
     <p class="sub" style="margin:0">Jefatura y supervisoras se asignan en <strong>Aprobadores</strong> (abajo); los usuarios de sala, en <strong>Usuarios de salas y áreas</strong>. Toda persona necesita además su usuario creado en Supabase → Authentication → Users.</p></section>`;
 }
-async function cambiarAdmin(email, activo, btn){
-  if(!activo && !await confirmar(`¿Quitar el rol de Logística CEDIS a ${email}? Ya no podrá entregar, cargar inventario ni configurar.`, {titulo:'Quitar rol', si:'Sí, quitar', tono:'btn-danger'})) return;
+const NOM_ROL = {logistica:'Logística CEDIS', consulta:'Consulta'};
+async function cambiarAdmin(email, activo, btn, r = 'logistica'){
+  if(!activo && !await confirmar(`¿Quitar el rol de ${NOM_ROL[r]} a ${email}?`, {titulo:'Quitar rol', si:'Sí, quitar', tono:'btn-danger'})) return;
+  const otro = ADMINS.find(a => a.email === email && a.activo && a.rol !== r);
+  if(activo && otro && !await confirmar(`${email} hoy tiene el rol ${NOM_ROL[otro.rol]}. ¿Cambiarlo a ${NOM_ROL[r]}?`, {titulo:'Cambiar rol', si:'Sí, cambiar'})) return;
   if(btn) btn.disabled = true;
-  const {error} = await sb.rpc('guardar_admin', {p_email:email, p_nombre:null, p_activo:activo});
+  const {error} = await sb.rpc('guardar_rol', {p_email:email, p_nombre:null, p_activo:activo, p_rol:r});
   if(btn) btn.disabled = false;
   if(error){ toast(errMsg(error)); return; }
-  await cargarAdmins(); toast(activo ? `${email} ahora es Logística CEDIS.` : `${email} ya no es Logística CEDIS.`); render();
+  await cargarAdmins(); toast(activo ? `${email} ahora tiene el rol ${NOM_ROL[r]}.` : `${email} ya no tiene el rol ${NOM_ROL[r]}.`); render();
 }
 document.addEventListener('click', e => {
   const t = e.target;
-  if(t.id === 'btnAddAdmin'){ const v = ($('nuevoAdmin').value || '').trim().toLowerCase(); if(!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(v)){ toast('Escriba un correo válido.'); return; } cambiarAdmin(v, true, t); }
-  const q = t.closest?.('[data-quitar-admin]'); if(q) cambiarAdmin(q.dataset.quitarAdmin, false, q);
+  const ad = t.closest?.('[data-add-rol]'); if(ad){ const r = ad.dataset.addRol, v = ($('nuevo-' + r).value || '').trim().toLowerCase(); if(!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(v)){ toast('Escriba un correo válido.'); return; } cambiarAdmin(v, true, ad, r); }
+  const q = t.closest?.('[data-quitar-rol]'); if(q) cambiarAdmin(q.dataset.quitarRol, false, q, q.dataset.r);
 });
 
 // ---------- ingreso de salas (usuarios por correo) ----------
@@ -891,18 +898,18 @@ $('detBody').addEventListener('click', async e => {
 // ---------- sesión ----------
 async function evaluarSesion(s){
   sesion = s; rol = {admin:false, grupos:[]};
-  if(s){ const {data} = await sb.rpc('mi_rol'); if(data) rol = {admin:!!data.admin, grupos:data.grupos || [], unidad:data.unidad || null}; }
+  if(s){ const {data} = await sb.rpc('mi_rol'); if(data) rol = {admin:!!data.admin, consulta:!!data.consulta, grupos:data.grupos || [], unidad:data.unidad || null}; }
   $('btnLogin').textContent = s ? 'Salir' : 'Ingresar';
-  $('roleChip').textContent = rol.admin ? 'Logística CEDIS' : esJefatura() ? 'Jefatura · ' + rol.grupos.map(g => G[g]?.aprobador).join(', ') : rol.unidad && U[rol.unidad] && !rol.grupos.length ? U[rol.unidad].nombre : rol.grupos.length ? 'Aprobador · ' + rol.grupos.map(g => G[g]?.aprobador).join(', ') : s ? 'Sin grupo asignado' : EXIGIR ? 'Sin ingresar' : 'Sucursal';
-  $('roleChip').classList.toggle('role', rol.admin || rol.grupos.length > 0);
+  $('roleChip').textContent = rol.admin ? 'Logística CEDIS' : esConsulta() ? 'Consulta' : esJefatura() ? 'Jefatura · ' + rol.grupos.map(g => G[g]?.aprobador).join(', ') : rol.unidad && U[rol.unidad] && !rol.grupos.length ? U[rol.unidad].nombre : rol.grupos.length ? 'Aprobador · ' + rol.grupos.map(g => G[g]?.aprobador).join(', ') : s ? 'Sin grupo asignado' : EXIGIR ? 'Sin ingresar' : 'Sucursal';
+  $('roleChip').classList.toggle('role', rol.admin || !!rol.consulta || rol.grupos.length > 0);
   if(rol.admin){ try{ await cargarBase(); }catch(e){} }
   if(listo && EXIGIR){ try{ await cargarPedidos(); }catch(e){} }
   await cargarPrecios();
   await cargarInventario();
   if(rol.admin) await cargarAdmins();
   activarPush(true);
-  if(s && !rol.admin && !rol.grupos.length && !rol.unidad) toast('Ingresó, pero su correo todavía no está vinculado a ninguna sala ni grupo. Pida a logística que lo registre.');
-  if((rol.admin || rol.grupos.length) && (tab === 'solicitar' || !tab)) tab = rol.admin ? 'tablero' : 'bandeja';
+  if(s && !rol.admin && !rol.consulta && !rol.grupos.length && !rol.unidad) toast('Ingresó, pero su correo todavía no está vinculado a ninguna sala ni grupo. Pida a logística que lo registre.');
+  if((rol.admin || rol.consulta || rol.grupos.length) && (tab === 'solicitar' || !tab)) tab = rol.admin || esConsulta() ? 'tablero' : 'bandeja';
   if(tabPedida && planoTabs(tabsDisponibles()).some(x => x[0] === tabPedida)){ tab = tabPedida; tabPedida = null; }
   render();
 }

@@ -34,7 +34,7 @@ body=body.replace(tag,'<script>window.__MOCK='+mock+';\n'+sbm+'</script>')
 body=body.replace('<script src="app.js"></script>','<script>\n'+js.replace("if('serviceWorker' in navigator && location.protocol === 'https:')","if(false)")+'\n</script>')
 fechas=[('','Hoy'),('2026-10-18T10:00','18 oct · últimos días para enviar'),('2026-10-23T10:00','23 oct · aprobación'),('2026-10-27T10:00','27 oct · compras'),('2026-11-04T10:00','4 nov · entrega a salas'),('2026-11-12T10:00','12 nov · ciclo cerrado')]
 body=body.replace('<header class="top">','''<div class="demo"><div class="demo-in"><span><strong>Vista previa</strong> con solicitudes de ejemplo. Nada se guarda en la base real.</span>
-<label style="display:flex;gap:6px;align-items:center">Ver como <select id="demoRol" onchange="verComo(this.value)"><option value="sol">Sucursal o área (sin ingresar)</option><option value="log">Logística CEDIS (tú)</option>'''+opts+'''</select></label>
+<label style="display:flex;gap:6px;align-items:center">Ver como <select id="demoRol" onchange="verComo(this.value)"><option value="sol">Sucursal o área (sin ingresar)</option><option value="log">Logística CEDIS (tú)</option><option value="consulta">Consulta (solo ver)</option>'''+opts+'''</select></label>
 <label style="display:flex;gap:6px;align-items:center">Fecha <select id="demoFecha" onchange="window.__HOY=this.value||null;render()">'''+''.join(f'<option value="{v}">{t}</option>' for v,t in fechas)+'''</select></label></div></div>
 <header class="top">''',1)
 open(R+'vista-previa.html','w').write('<meta charset="utf-8">\n'+title+'\n'+style+'\n'+body)
