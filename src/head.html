@@ -99,6 +99,11 @@ tr.tot td{font-weight:700;background:var(--surface-2)}
 .chip.Confirmada{background:var(--st-conf-bg);color:var(--st-conf)}
 .chip.Entregada{background:var(--st-ent-bg);color:var(--st-ent)}
 .chip.Rechazada,.chip.alerta{background:var(--st-rech-bg);color:var(--st-rech)}
+.inv-res{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:10px}
+.inv-res .kpi{border:1px solid var(--line);border-radius:12px;padding:10px 14px;display:flex;gap:12px;align-items:center;background:var(--surface-2)}
+.inv-res .kpi b{font-size:22px;white-space:nowrap}.inv-res .kpi span{font-size:12.5px;color:var(--muted);line-height:1.3}
+.inv-res .kpi.mal b{color:#c62828}.inv-res .kpi.bien b{color:#1b7f4b}
+table.inv .neg{color:#c62828}table.inv tr.inv-falta td{background:rgba(229,57,53,.05)}
 .ingreso-estado{display:flex;gap:12px;align-items:center;justify-content:space-between;flex-wrap:wrap;padding:12px 14px;border-radius:12px;border:1px solid var(--line);background:var(--surface-2)}
 .ingreso-estado.on{border-color:#9fd9b8;background:#eefaf3}
 .bloqueo{display:flex;justify-content:center}.bloqueo-in{max-width:440px;text-align:center;padding:28px 8px}.bloqueo-ico{font-size:40px;line-height:1;margin-bottom:8px}
@@ -481,6 +486,11 @@ main{margin:0;max-width:1240px;width:100%}
   </form>
 </div></div>
 
+<div class="modal" id="mInv" hidden><div class="modal-card" style="max-width:820px">
+  <div class="modal-head"><h3>Cargar inventario</h3><button class="x" data-close="mInv" aria-label="Cerrar">&times;</button></div>
+  <div id="invBody" class="grid" style="gap:10px"></div>
+  <div class="row right"><button class="btn" data-close="mInv">Cancelar</button><button class="btn btn-primary" id="invAplicar">Cargar</button></div>
+</div></div>
 <div class="modal" id="mCorreos" hidden><div class="modal-card" style="max-width:820px">
   <div class="modal-head"><h3>Subir usuarios de salas</h3><button class="x" data-close="mCorreos" aria-label="Cerrar">&times;</button></div>
   <div id="coBody" class="grid" style="gap:10px"></div>
