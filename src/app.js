@@ -117,7 +117,7 @@ const verTablero = () => rol.admin || !!rol.consulta || rol.grupos.some(g => g =
 const esJefatura = () => !rol.admin && !esConsulta() && verTablero();
 const SUB_TABLERO = [['tablero','Resumen'],['bandeja','Por confirmar'],['preparacion','Preparación'],['entregar','Por entregar']];
 function tabsDisponibles(){
-  if(esConsulta()) return [['tablero','Tablero', SUB_TABLERO.filter(x => x[0] !== 'bandeja')], ['inventario','Inventario'], ['cobertura','Cobertura'], ['todos','Todos'], ['materiales','Materiales']];
+  if(esConsulta()) return [...(salaUsuario() ? [['solicitar','Solicitar'], ['seguimiento','Seguimiento']] : []), ['tablero','Tablero', SUB_TABLERO.filter(x => x[0] !== 'bandeja')], ['inventario','Inventario'], ['cobertura','Cobertura'], ['todos','Todos'], ['materiales','Materiales']];
   const t = [['solicitar','Solicitar']]; if(rol.admin || !rol.grupos.length) t.push(['seguimiento','Seguimiento']);
   if(rol.admin) t.push(['tablero','Tablero', SUB_TABLERO], ['inventario','Inventario'], ['cobertura','Cobertura'], ['todos','Todos']);
   else if(verTablero()) t.push(['tablero','Tablero', SUB_TABLERO], ['inventario','Inventario'], ['grupo','Mi grupo'], ['cobertura','Cobertura'], ['todos','Todos']);
@@ -632,14 +632,14 @@ function vRoles(){
   const act = UL.filter(u => u.activa), conU = act.filter(u => u.correo).length;
   const fila = (ico, nombre, permisos, quien) => `<tr><td class="rol-n"><span class="rol-ico">${ico}</span><strong>${nombre}</strong></td><td><ul class="rol-perm">${permisos.map(x => `<li>${x}</li>`).join('')}</ul></td><td>${quien}</td></tr>`;
   const adm = ADMINS.filter(a => a.activo && a.rol === 'logistica'), cons = ADMINS.filter(a => a.activo && a.rol === 'consulta');
-  const chipP = (a, r) => `<span class="rol-p"><strong>${esc(a.nombre || a.email.split('@')[0])}</strong><span class="sub">${esc(a.email)}</span>${sinCuenta(a.email)}${a.email !== (sesion?.user?.email || '').toLowerCase() ? `<button class="x-mini" data-quitar-rol="${esc(a.email)}" data-r="${r}" title="Quitar rol">✕</button>` : ''}</span>`;
+  const chipP = (a, r) => `<span class="rol-p"><strong>${esc(a.nombre || a.email.split('@')[0])}</strong><span class="sub">${esc(a.email)}</span>${r === 'consulta' && UL.some(u => u.correo === a.email) ? `<span class="sub">🏪 pide para ${esc(UL.find(u => u.correo === a.email).nombre)}</span>` : ''}${sinCuenta(a.email)}${a.email !== (sesion?.user?.email || '').toLowerCase() ? `<button class="x-mini" data-quitar-rol="${esc(a.email)}" data-r="${r}" title="Quitar rol">✕</button>` : ''}</span>`;
   const addP = r => `<div class="row" style="margin-top:6px;gap:6px"><input id="nuevo-${r}" type="email" placeholder="correo@farmaciaschavez.com.bo" style="max-width:240px"><button class="btn btn-sm" data-add-rol="${r}">+ Agregar</button></div>`;
   if(CUENTAS === null && !vRoles._pidiendo){ vRoles._pidiendo = true; cargarCuentas().then(() => { vRoles._pidiendo = false; if(tab === 'config') render(); }); }
   return `<section class="panel${plegCls('roles')}"><div class="panel-head"><div><h2>Roles y permisos ${plegBtn('roles')}</h2><p class="sub">Qué puede hacer cada rol y quién lo tiene. El rol se asigna por el correo con el que la persona ingresa.</p></div><div class="row"><button class="btn btn-primary" id="btnCrearUsuario">+ Crear usuario</button></div></div>
     <div class="tbl-wrap"><table class="roles"><thead><tr><th>Rol</th><th>Puede</th><th>Quiénes</th></tr></thead><tbody>
     ${fila('🚚', 'Logística CEDIS', ['Todo lo de Jefatura', 'Marcar entregas, N° de traspaso y entregas parciales', 'Cargar inventario y editar costos y proveedores', 'Configuración: salas, aprobadores, usuarios y kit'],
       adm.map(a => chipP(a, 'logistica')).join('') + addP('logistica'))}
-    ${fila('👁️', 'Consulta', ['Ver todo: Tablero, preparación, por entregar, Inventario, Cobertura de todas las salas, Todos y costos', 'Descargar reportes y el Excel de compra', 'No confirma, no entrega, no pide y no edita nada'], cons.map(a => chipP(a, 'consulta')).join('') + addP('consulta'))}
+    ${fila('👁️', 'Consulta', ['Ver todo: Tablero, preparación, por entregar, Inventario, Cobertura de todas las salas, Todos y costos', 'Descargar reportes y el Excel de compra', 'No confirma, no entrega y no edita nada', 'Si se le asigna una sala, también puede pedir para esa sala'], cons.map(a => chipP(a, 'consulta')).join('') + addP('consulta'))}
     ${fila('📊', 'Jefatura', ['Confirmar o rechazar las solicitudes de su grupo', 'Ver Tablero completo: preparación y por entregar (solo consulta)', 'Ver Inventario, necesidad de compra, Todos y costos', 'Crear y editar materiales'], jef.map(g => persona(g.aprobador + ' · ' + g.nombre, g.aprobador_email)).join(''))}
     ${fila('✅', 'Supervisora (aprobadora)', ['Confirmar o rechazar las solicitudes de su grupo', 'Ver Mi grupo y Cobertura de sus salas', 'Ver costos'], sup.map(g => persona(g.aprobador, g.aprobador_email)).join(''))}
     ${fila('🏪', 'Sala o área', ['Enviar solicitudes solo para su sala', 'Ver el seguimiento de sus solicitudes', 'Anular una solicitud mientras no esté confirmada'], `<span class="rol-p"><strong>${conU} de ${act.length}</strong><span class="sub">salas y áreas con usuario</span></span>`)}
@@ -670,7 +670,8 @@ async function cargarCuentas(){ try{ const {data, error} = await sb.functions.in
 const sinCuenta = e => CUENTAS && e && !CUENTAS.some(c => c.email === String(e).toLowerCase()) ? ' <span class="chip alerta">sin cuenta</span>' : '';
 function rolDe(email){
   const e = String(email || '').toLowerCase(), a = ADMINS.find(x => x.activo && x.email === e);
-  if(a) return a.rol === 'consulta' ? '👁️ Consulta' : '🚚 Logística CEDIS';
+  const uS = UL.find(x => (x.correo || '') === e);
+  if(a) return a.rol === 'consulta' ? '👁️ Consulta' + (uS ? ' + 🏪 ' + uS.nombre : '') : '🚚 Logística CEDIS';
   const g = GL.filter(x => (x.aprobador_email || '').toLowerCase() === e);
   if(g.length) return (g.some(x => x.id === 'OFC' || x.id === 'CEDIS') ? '📊 Jefatura · ' : '✅ Aprobador · ') + g.map(x => x.nombre).join(', ');
   const u = UL.find(x => (x.correo || '') === e);
@@ -692,7 +693,7 @@ function abrirCrearUsuario(email){
   $('uaSala').innerHTML = '<option value="">— elija —</option>' + UL.filter(u => u.activa).sort((a, b) => a.nombre.localeCompare(b.nombre, 'es')).map(u => `<option value="${esc(u.id)}">${esc(u.nombre)}${u.correo ? ' (ya tiene: ' + esc(u.correo) + ')' : ''}</option>`).join('');
   pintaRolUA(); $('mUsuario').hidden = false; $('uaEmail').focus();
 }
-function pintaRolUA(){ const r = $('uaRol').value; $('uaGrupoWrap').hidden = r !== 'aprobador'; $('uaSalaWrap').hidden = r !== 'sala'; }
+function pintaRolUA(){ const r = $('uaRol').value; $('uaGrupoWrap').hidden = r !== 'aprobador'; $('uaSalaWrap').hidden = r !== 'sala' && r !== 'consulta'; $('uaSalaTxt').textContent = r === 'consulta' ? 'Sala o área para la que también puede pedir (opcional)' : 'Sala o área'; }
 async function crearUsuario(btn){
   const email = $('uaEmail').value.trim().toLowerCase(), pass = $('uaPass').value, r = $('uaRol').value;
   const err = m => { $('uaMsg').textContent = m; $('uaMsg').hidden = false; };
@@ -706,6 +707,7 @@ async function crearUsuario(btn){
   if(msg){ btn.disabled = false; return err(msg); }
   let e2 = null;
   if(r === 'logistica' || r === 'consulta') e2 = (await sb.rpc('guardar_rol', {p_email:email, p_nombre:null, p_activo:true, p_rol:r})).error;
+  if(!e2 && r === 'consulta' && $('uaSala').value) e2 = (await sb.rpc('guardar_correo_unidad', {p_id:$('uaSala').value, p_correo:email})).error;
   else if(r === 'aprobador'){ const g = $('uaGrupo').value; e2 = (await sb.from('grupos').update({aprobador_email:email}).eq('id', g)).error; if(!e2) G[g].aprobador_email = email; }
   else if(r === 'sala') e2 = (await sb.rpc('guardar_correo_unidad', {p_id:$('uaSala').value, p_correo:email})).error;
   btn.disabled = false;
@@ -974,7 +976,7 @@ async function evaluarSesion(s){
   sesion = s; rol = {admin:false, grupos:[]};
   if(s){ const {data} = await sb.rpc('mi_rol'); if(data) rol = {admin:!!data.admin, consulta:!!data.consulta, grupos:data.grupos || [], unidad:data.unidad || null}; }
   $('btnLogin').textContent = s ? 'Salir' : 'Ingresar';
-  $('roleChip').textContent = rol.admin ? 'Logística CEDIS' : esConsulta() ? 'Consulta' : esJefatura() ? 'Jefatura · ' + rol.grupos.map(g => G[g]?.aprobador).join(', ') : rol.unidad && U[rol.unidad] && !rol.grupos.length ? U[rol.unidad].nombre : rol.grupos.length ? 'Aprobador · ' + rol.grupos.map(g => G[g]?.aprobador).join(', ') : s ? 'Sin grupo asignado' : EXIGIR ? 'Sin ingresar' : 'Sucursal';
+  $('roleChip').textContent = rol.admin ? 'Logística CEDIS' : esConsulta() ? 'Consulta' + (salaUsuario() ? ' · ' + U[salaUsuario()].nombre : '') : esJefatura() ? 'Jefatura · ' + rol.grupos.map(g => G[g]?.aprobador).join(', ') : rol.unidad && U[rol.unidad] && !rol.grupos.length ? U[rol.unidad].nombre : rol.grupos.length ? 'Aprobador · ' + rol.grupos.map(g => G[g]?.aprobador).join(', ') : s ? 'Sin grupo asignado' : EXIGIR ? 'Sin ingresar' : 'Sucursal';
   $('roleChip').classList.toggle('role', rol.admin || !!rol.consulta || rol.grupos.length > 0);
   if(rol.admin){ try{ await cargarBase(); }catch(e){} }
   if(listo && EXIGIR){ try{ await cargarPedidos(); }catch(e){} }
