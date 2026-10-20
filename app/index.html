@@ -112,6 +112,7 @@ table.inv .neg{color:#c62828}table.inv tr.inv-falta td{background:rgba(229,57,53
 .rol-perm{margin:0;padding-left:16px;font-size:13px;line-height:1.45}
 .rol-p{display:inline-flex;flex-direction:column;gap:1px;margin:0 14px 6px 0;position:relative;padding-right:18px;font-size:13px}.rol-p .sub{margin:0;font-size:12px}.rol-p .chip{align-self:flex-start}
 .x-mini{position:absolute;right:0;top:0;border:0;background:none;color:var(--muted);cursor:pointer;font-size:12px;opacity:.6}.x-mini:hover{opacity:1;color:#c62828}
+.edit-box{display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;border-color:#e29a12;background:#fff6e5;color:#4a3300}
 .ua-datos{margin:8px 0;padding:8px 10px;border-radius:8px;background:var(--surface-2);border:1px solid var(--line);font-size:13px;line-height:1.6}
 .col-total{background:var(--surface-2);border-right:2px solid var(--line)}
 .notice.fin{border-color:var(--tile-fin);background:var(--st-fin-bg)}
@@ -1288,7 +1289,7 @@ const salaEquipo = () => { if(salaUsuario()) return salaUsuario(); if(rol.admin 
 function vSolicitar(){
   const eq = salaEquipo(); if(eq) unidadSel = eq;
   const u = unidadSel && U[unidadSel];
-  let h = `<section class="panel"><div class="panel-head"><div><h2>Nueva solicitud de insumos</h2><p class="sub">${eq ? 'Revise las cantidades y envíe.' : 'Elija su sucursal o área, revise las cantidades y envíe.'} Quien aprueba su grupo la confirmará.</p></div></div>
+  let h = `<section class="panel"><div class="panel-head"><div><h2>${editandoId ? 'Editar solicitud' : 'Nueva solicitud de insumos'}</h2><p class="sub">${eq ? 'Revise las cantidades y envíe.' : 'Elija su sucursal o área, revise las cantidades y envíe.'} Quien aprueba su grupo la confirmará.</p></div></div>
     ${eq && salaUsuario() ? `<div class="equipo-box"><span>👤 Solicita como ${selMisSalas('selMiSala')}</span></div>` : eq ? `<div class="equipo-box"><span>🔒 Este equipo está vinculado a su sala</span><button class="btn btn-sm" id="btnCambiarSala">Cambiar sala</button></div>` : `<label class="f">Sucursal o área${selectorUnidad('selUnidad', unidadSel)}</label>`}`;
   if(u && !rol.admin && !rol.grupos.length) h = bloqueAvisos() + h;
   if(!u){ return lineaCicloMini() + h + `<div class="notice info">Elija su sucursal o área para empezar. Luego agregue los insumos que necesita o cargue su pedido anterior.</div></section>`; }
@@ -1297,13 +1298,14 @@ function vSolicitar(){
   h += `<div class="unidad-box" data-g="${esc(u.grupo_id)}"><b>${esc(u.nombre)}</b><span class="sub" style="margin:0">${esc(u.tipo)}${u.muelle ? ' · ' + esc(u.muelle) : ''} · la confirma <strong>${esc(g?.aprobador || 'Logística CEDIS')}</strong></span></div>`;
   if(esApertura) h += `<div class="notice apertura"><strong>Solicitud de APERTURA.</strong> Se puede enviar en cualquier fecha, la supervisora la ve primero y la sala igual puede enviar su pedido mensual. <button class="btn btn-sm" id="btnQuitarApertura">Es un pedido normal</button></div>`;
   else if(puedeKit(u)) h += `<div class="notice info kit-box"><span>${salaNueva(u) ? '<strong>Sala nueva.</strong> Para la primera dotación use el kit de apertura: ' : 'Si es la apertura de esta sala, puede cargar el '}${plural(KIT.length, 'insumo estándar', 'insumos estándar')}.</span><button class="btn btn-sm btn-primary" id="btnKit">Cargar kit de apertura</button></div>`;
-  if(pendiente && !esApertura) h += `<div class="notice">Esta ${u.tipo === 'Sucursal' ? 'sucursal' : 'área'} ya tiene la solicitud <strong>${esc(pendiente.codigo)}</strong> esperando confirmación (${hace(pendiente.ts)}). Puede enviar otra si hace falta.</div>`;
+  if(editandoId){ const pe = pedidos.find(x => x.id === editandoId); if(!pe || pe.unidad_id !== u.id) editandoId = null; else h += `<div class="notice edit-box"><span>✏️ Editando la solicitud <strong>${esc(pe.codigo)}</strong>. Los cambios reemplazan lo que envió.</span><button class="btn btn-sm" id="btnCancelEdit">Cancelar edición</button></div>`; }
+  if(pendiente && !esApertura && !editandoId) h += `<div class="notice">Esta ${u.tipo === 'Sucursal' ? 'sucursal' : 'área'} ya tiene la solicitud <strong>${esc(pendiente.codigo)}</strong> esperando confirmación (${hace(pendiente.ts)}). Puede enviar otra si hace falta.</div>`;
   h += `<div class="grid g3"><label class="f">Nombre de quien solicita *<input id="nSol" value="${esc(solicitanteNom)}" placeholder="Ej: Dra. Ana Rojas" maxlength="100"></label>${esApertura ? `<label class="f">Fecha de inauguración *<input type="date" id="nFechaAp" value="${esc(fechaAp)}" min="${hoyISO()}"></label>` : ''}</div>
     <div class="row"><div class="search" style="flex:1;min-width:240px"><input id="nBuscar" placeholder="Agregar insumo: busque por código o nombre…" autocomplete="off"><div class="results" id="nRes" hidden></div></div><button type="button" class="btn btn-sm" data-pedir-nuevo="1" title="Si el insumo no está en la lista">+ Material nuevo</button>
     <button class="btn btn-danger" id="btnVaciar" ${borrador.length ? '' : 'disabled'}>Eliminar todo</button></div>
     ${(() => { const ant = ultimoPedido(u.id); return ant ? `<div class="anterior"><span>Último pedido: <strong>${esc(ant.codigo)}</strong> · ${fF(ant.ts)} · ${ant.items.length} insumos · ${chip(ant.estado)}</span><button class="btn btn-accent btn-sm" id="btnAnterior">Cargar pedido anterior</button></div>` : ''; })()}
     <div class="tbl-wrap"><table><thead><tr><th class="hide-sm">Código</th><th>Insumo</th><th class="num hide-sm">Unidad</th><th class="num">Cantidad</th><th class="num"><span class="hide-sm">Quitar</span></th></tr></thead><tbody id="nItems"></tbody></table></div>
-    <div class="row" style="justify-content:space-between"><span class="sub" id="nResumen" style="margin:0"></span><button class="btn btn-primary btn-lg" id="nEnviar">Enviar solicitud</button></div></section>`;
+    <div class="row" style="justify-content:space-between"><span class="sub" id="nResumen" style="margin:0"></span><button class="btn btn-primary btn-lg" id="nEnviar">${editandoId ? 'Guardar cambios' : 'Enviar solicitud'}</button></div></section>`;
   return h;
 }
 const ultimoPedido = uid => { const l = pedidos.filter(p => p.unidad_id === uid).sort((a,b) => b.ts - a.ts); return l.find(p => p.tipo !== 'Apertura') || l[0]; };
@@ -1357,6 +1359,8 @@ document.addEventListener('click', async e => {
   if(t.id === 'btnVaciar'){ if(borrador.length && await confirmar(`¿Eliminar los ${borrador.length} insumos de la lista? Tendrá que agregarlos de nuevo.`)){ borrador = []; esApertura = false; fechaAp = ''; pintaBorrador(); render(); toast('Lista vacía.'); } return; }
   if(t.id === 'btnAnterior'){ cargarAnterior(); return; }
   if(t.id === 'nEnviar') enviar(t);
+  if(t.id === 'btnCancelEdit'){ cancelarEdicion(); return; }
+  const ep = t.closest?.('[data-editar-ped]'); if(ep){ editarPedido(ep.dataset.editarPed); return; }
   if(t.id === 'btnKit'){ if(!borrador.length || await confirmar(`Ya tiene ${plural(borrador.length, 'insumo', 'insumos')} en la lista. ¿Reemplazarlos por el kit de apertura?`, {titulo:'Kit de apertura', si:'Sí, reemplazar', tono:'btn-primary'})) cargarKit(); return; }
   if(t.id === 'btnQuitarApertura'){ esApertura = false; render(); toast('Se enviará como pedido mensual.'); return; }
   const ver = t.closest('[data-ver]'); if(ver && !t.closest('.modal') && !t.closest('.chk') && !t.closest('[data-anular]') && !t.closest('[data-conf-ap]') && !t.closest('[data-trasp]')) abrirDet(ver.dataset.ver);
@@ -1386,12 +1390,34 @@ document.addEventListener('click', async e => {
   if(t.dataset.cfgSave) guardarAprobador(t.dataset.cfgSave, t);
   if(t.id === 'btnCopiarLink') copiarLink();
 });
+// editar una solicitud mientras sigue 'Enviada' (antes de que la supervisora la confirme)
+let editandoId = null;
+const puedeEditarPed = p => p.estado === 'Enviada' && (claves[p.id] || rol.admin || (sesion && (misSalas().includes(p.unidad_id) || rol.unidad === p.unidad_id || rol.grupos.includes(U[p.unidad_id]?.grupo_id))));
+function editarPedido(id){
+  const p = pedidos.find(x => x.id === id); if(!p || !puedeEditarPed(p)) return;
+  editandoId = id; unidadSel = p.unidad_id; solicitanteNom = p.solicitante || ''; esApertura = false;
+  borrador = p.items.map(i => ({codigo:i.codigo, descripcion:i.descripcion, unidad:i.unidad, categoria:i.categoria, cantidad:+i.cantidad}));
+  tab = 'solicitar'; render(); toast(`Editando ${p.codigo}. Cambie lo necesario y presione Guardar cambios.`);
+}
+function cancelarEdicion(){ editandoId = null; borrador = []; tab = 'seguimiento'; render(); }
+async function guardarEdicion(btn, nombre, items){
+  const p = pedidos.find(x => x.id === editandoId);
+  if(!p || p.estado !== 'Enviada'){ toast('Esta solicitud ya fue confirmada y no se puede editar.'); editandoId = null; borrador = []; render(); return; }
+  if(!await confirmar(`¿Guardar los cambios en ${p.codigo}? Quedará con ${plural(items.length, 'insumo', 'insumos')}.`, {titulo:'Guardar cambios', si:'Guardar', tono:'btn-primary'})) return;
+  btn.disabled = true;
+  const {error} = await sb.rpc('editar_pedido', {p_id:p.id, p_items:items, p_solicitante:nombre, p_clave:claves[p.id] || null});
+  btn.disabled = false;
+  if(error){ toast(errMsg(error)); return; }
+  store.set('fch_nombre', nombre); Object.assign(p, {items:vivo(items), solicitante:nombre});
+  toast(`${p.codigo} actualizada.`); editandoId = null; borrador = []; tab = 'seguimiento'; render(); cargarPedidos();
+}
 async function enviar(btn){
   const nombre = titulo(($('nSol').value || '').trim()); if($('nSol')) $('nSol').value = nombre; solicitanteNom = nombre;
   if(!nombre){ toast('Escriba el nombre de quien solicita.'); $('nSol').focus(); return; }
   const items = borrador.filter(i => i.cantidad > 0).map(i => ({...i, observacion:'-'}));
   if(esApertura){ fechaAp = $('nFechaAp')?.value || fechaAp; if(!fechaAp){ toast('Indique la fecha de inauguración de la sala.'); $('nFechaAp')?.focus(); return; } }
   if(!items.length){ toast('Ponga cantidad al menos a un insumo.'); return; }
+  if(editandoId) return guardarEdicion(btn, nombre, items);
   const u = U[unidadSel], ap = G[u?.grupo_id]?.aprobador || 'Logística CEDIS', tot = items.reduce((a,i) => a + (+i.cantidad || 0), 0);
   const ok = await confirmar(`<div class="conf-envio"><span class="sub" style="margin:0">Va a enviar la solicitud de</span><b>${esc(u?.nombre || '')}</b><span>${plural(items.length, 'insumo', 'insumos')} · ${tot} unidades en total</span><span>Solicita: <strong>${esc(nombre)}</strong> · La aprueba: <strong>${esc(ap)}</strong></span>${esApertura ? `<span><span class="chip apertura">Apertura</span> ${esc(txtAbre(fechaAp))}</span>` : ''}</div><p class="sub" style="margin:8px 0 0">Revise que sea su ${u?.tipo === 'Sucursal' ? 'sucursal' : 'área'}. Si se equivoca, podrá anularla desde Seguimiento mientras no la confirmen.</p>`, {html:true, titulo:'¿Es la sala correcta?', si:'Sí, enviar', tono:'btn-primary'});
   if(!ok) return;
@@ -1446,7 +1472,7 @@ function tabla(lista, cols, vacio, conSel){
     valor: ['Valor', p => { const v = valorPedido(p, p.estado === 'Entregada'); return `<td class="num" style="white-space:nowrap">${v.total ? fBs(v.total) : '–'}${v.sin ? `<div class="sub" style="margin:0" title="Insumos sin precio cargado">${v.sin} sin precio</div>` : ''}</td>`; }],
     estado: ['Estado', p => `<td>${chip(p.estado)}${p.origen === 'historico' ? ' <span class="chip" title="Cargado desde el reporte de traspasos">histórico</span>' : ''}${p.items_original ? ' <span class="chip ajuste">ajustada</span>' : ''}${p.items_entregados ? ' <span class="chip alerta">entrega parcial</span>' : ''}${p.tipo === 'Apertura' ? ` <span class="chip apertura">Apertura${p.fecha_apertura && p.estado !== 'Entregada' ? ' · ' + esc(txtAbre(p.fecha_apertura)) : ''}</span>` : ''}${tarde(p) ? ' <span class="chip">fuera de plazo</span>' : ''}${p.estado === 'Enviada' && horas(Date.now() - p.ts) > 48 ? ' <span class="chip alerta">+2 días</span>' : ''}</td>`],
     traspaso: ['N° traspaso', p => !usaTraspaso(p) ? '<td class="sub">No aplica</td>' : rol.admin && p.estado === 'Aprobada' ? `<td class="td-trasp"><input class="trasp-in" data-trasp="${esc(p.id)}" value="${esc(p.nro_traspaso || '')}" maxlength="40" placeholder="Escriba…" aria-label="Número de traspaso de ${esc(p.codigo)}"></td>` : `<td class="mono">${esc(p.nro_traspaso || '–')}</td>`],
-    anular: ['', p => `<td class="num">${p.estado === 'Enviada' && (claves[p.id] || rol.admin || (sesion && (rol.unidad === p.unidad_id || rol.grupos.includes(U[p.unidad_id]?.grupo_id)))) ? `<button class="btn btn-sm btn-danger" data-anular="${esc(p.id)}">Anular</button>` : ''}</td>`],
+    anular: ['', p => `<td class="num" style="white-space:nowrap">${puedeEditarPed(p) ? `<button class="btn btn-sm" data-editar-ped="${esc(p.id)}">Editar</button> <button class="btn btn-sm btn-danger" data-anular="${esc(p.id)}">Anular</button>` : ''}</td>`],
     avance: ['Último avance', p => `<td class="sub">${p.estado === 'Anulada' ? 'Anulada ' + fFH(p.anulado_ts) : p.entregado_ts ? 'Entregada ' + fFH(p.entregado_ts) + (p.nro_traspaso ? ' · Traspaso ' + esc(p.nro_traspaso) : '') : p.estado === 'Rechazada' ? 'Rechazada ' + fFH(p.aprobado_ts || p.confirmado_ts) : p.aprobado_ts ? 'Aprobada ' + fFH(p.aprobado_ts) : p.confirmado_ts ? 'Confirmada ' + fFH(p.confirmado_ts) + ' · falta aprobación final' : 'Esperando confirmación'}</td>`],
   };
   if(verPrecios() && cols.includes('items') && !cols.includes('valor')) cols = cols.flatMap(c => c === 'items' ? ['items','valor'] : [c]);
