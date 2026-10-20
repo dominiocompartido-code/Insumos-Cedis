@@ -698,7 +698,7 @@ async function crearUsuario(btn){
   const err = m => { $('uaMsg').textContent = m; $('uaMsg').hidden = false; };
   $('uaMsg').hidden = true;
   if(!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) return err('Escriba un correo válido.');
-  if(pass.length < 8) return err('La contraseña debe tener al menos 8 caracteres.');
+  if(pass.length < 6) return err("La contraseña debe tener al menos 6 caracteres.");
   if(r === 'sala' && !$('uaSala').value) return err('Elija la sala o área.');
   btn.disabled = true;
   const {data, error} = await sb.functions.invoke('usuarios', {body:{accion:'crear', email, password:pass}});
@@ -719,7 +719,7 @@ async function restablecerPass(email){
   const ok = await confirmar(`<p>Se cambiará la contraseña de <strong>${esc(email)}</strong>. La anterior dejará de funcionar.</p><label class="f">Contraseña nueva<input id="rpPass" value="${esc(nueva)}" maxlength="60" autocomplete="off"></label>`, {html:true, titulo:'Restablecer contraseña', si:'Cambiar contraseña', tono:'btn-primary'});
   if(!ok) return;
   const pass = (document.getElementById('rpPass')?.value || nueva).trim();
-  if(pass.length < 8){ toast('La contraseña debe tener al menos 8 caracteres.'); return; }
+  if(pass.length < 6){ toast("La contraseña debe tener al menos 6 caracteres."); return; }
   const {data, error} = await sb.functions.invoke('usuarios', {body:{accion:'restablecer', email, password:pass}});
   const msg = error ? (await error.context?.json?.().catch(() => null))?.error || errMsg(error) : data?.error;
   if(msg){ toast('No se pudo: ' + msg); return; }
@@ -1013,7 +1013,7 @@ $('btnOlvido').addEventListener('click', async () => {
   loginMsg(error ? 'No se pudo enviar: ' + error.message : 'Si el correo existe, le llegó un enlace para cambiar la contraseña.', error ? '' : 'info');
 });
 $('formNuevaPass').addEventListener('submit', async e => {
-  e.preventDefault(); const p = $('nuevaPass').value; if(p.length < 8){ toast('Use al menos 8 caracteres.'); return; }
+  e.preventDefault(); const p = $('nuevaPass').value; if(p.length < 6){ toast("Use al menos 6 caracteres."); return; }
   const {error} = await sb.auth.updateUser({password:p});
   if(error){ toast('No se pudo cambiar: ' + error.message); return; }
   $('mNuevaPass').hidden = true; toast('Contraseña actualizada.');
