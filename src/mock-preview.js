@@ -48,8 +48,15 @@
     return b;
   }
   const rolActual = () => window.__ROL;
+  D.cuentas = [{email:'dagarcia@farmaciaschavez.com.bo', creado:new Date().toISOString(), ultimo:new Date().toISOString(), confirmado:true}, {email:'logistica2gh@farmaciaschavez.com.bo', creado:new Date().toISOString(), ultimo:null, confirmado:true}];
   window.supabase = {createClient(){ const cli = {
     from: q,
+    functions:{ invoke(fn, o){ const b = o.body || {}; if(fn !== 'usuarios') return res(null);
+      if(b.accion === 'listar') return Promise.resolve({data:{usuarios:D.cuentas.slice()}, error:null});
+      const ya = D.cuentas.find(c => c.email === b.email);
+      if(b.accion === 'crear'){ if(!ya) D.cuentas.push({email:b.email, creado:new Date().toISOString(), ultimo:null, confirmado:true}); return Promise.resolve({data:{ok:true, existia:!!ya}, error:null}); }
+      if(b.accion === 'restablecer') return Promise.resolve({data: ya ? {ok:true} : {error:'Ese correo no tiene cuenta. Créela primero.'}, error:null});
+      return Promise.resolve({data:{error:'Acción no válida'}, error:null}); } },
     rpc(name, a){
       if(name === 'mi_rol') return res(rolActual() || {admin:false, grupos:[]});
       const p = pedidos.find(x => x.id === a?.p_id); const now = iso(Date.now());

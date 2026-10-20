@@ -111,6 +111,7 @@ table.inv .neg{color:#c62828}table.inv tr.inv-falta td{background:rgba(229,57,53
 .rol-perm{margin:0;padding-left:16px;font-size:13px;line-height:1.45}
 .rol-p{display:inline-flex;flex-direction:column;gap:1px;margin:0 14px 6px 0;position:relative;padding-right:18px;font-size:13px}.rol-p .sub{margin:0;font-size:12px}.rol-p .chip{align-self:flex-start}
 .x-mini{position:absolute;right:0;top:0;border:0;background:none;color:var(--muted);cursor:pointer;font-size:12px;opacity:.6}.x-mini:hover{opacity:1;color:#c62828}
+.ua-datos{margin:8px 0;padding:8px 10px;border-radius:8px;background:var(--surface-2);border:1px solid var(--line);font-size:13px;line-height:1.6}
 .ingreso-estado{display:flex;gap:12px;align-items:center;justify-content:space-between;flex-wrap:wrap;padding:12px 14px;border-radius:12px;border:1px solid var(--line);background:var(--surface-2)}
 .ingreso-estado.on{border-color:#9fd9b8;background:#eefaf3}
 .bloqueo{display:flex;justify-content:center}.bloqueo-in{max-width:440px;text-align:center;padding:28px 8px}.bloqueo-ico{font-size:40px;line-height:1;margin-bottom:8px}
@@ -207,6 +208,7 @@ tr.marcada td{background:color-mix(in srgb, var(--brand) 18%, var(--surface)) !i
 .meta{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:6px 16px;font-size:13px;background:var(--surface-2);border:1px solid var(--line);border-radius:8px;padding:12px}
 .notice{border-left:4px solid var(--tile-env);background:var(--st-env-bg);padding:10px 12px;border-radius:6px;font-size:13px;color:var(--ink)}
 .notice.info{border-color:var(--tile-conf);background:var(--st-conf-bg)}
+.notice.ok{border-color:#9fd9b8;background:#eefaf3;color:#14231f}
 .notice.bad{border-color:var(--tile-rech);background:var(--st-rech-bg)}
 .cambio{color:var(--st-env);font-weight:700}
 .quitado{color:var(--st-rech);text-decoration:line-through}
@@ -494,6 +496,19 @@ main{margin:0;max-width:1240px;width:100%}
   </form>
 </div></div>
 
+<div class="modal" id="mUsuario" hidden><div class="modal-card sm" style="max-width:520px">
+  <div class="modal-head"><h3>Crear usuario</h3><button class="x" data-close="mUsuario" aria-label="Cerrar">&times;</button></div>
+  <div class="grid" style="gap:10px">
+    <label class="f">Correo *<input id="uaEmail" type="email" placeholder="correo@farmaciaschavez.com.bo" autocomplete="off"></label>
+    <label class="f">Contraseña inicial *<span class="row" style="gap:6px;flex-wrap:nowrap"><input id="uaPass" maxlength="60" autocomplete="off" style="flex:1"><button type="button" class="btn btn-sm" id="uaGenerar">Generar otra</button></span></label>
+    <label class="f">Rol *<select id="uaRol"><option value="sala">Sala o área (pide para su sala)</option><option value="aprobador">Aprobador de un grupo (supervisora o jefatura)</option><option value="consulta">Consulta (solo ver)</option><option value="logistica">Logística CEDIS (todo)</option></select></label>
+    <label class="f" id="uaSalaWrap">Sala o área<select id="uaSala"></select></label>
+    <label class="f" id="uaGrupoWrap" hidden>Grupo que aprueba<select id="uaGrupo"></select></label>
+    <div class="notice bad" id="uaMsg" hidden></div>
+    <div class="notice ok" id="uaOk" hidden></div>
+    <div class="row right"><button type="button" class="btn" data-close="mUsuario">Cerrar</button><button type="button" class="btn btn-primary" id="uaGuardar">Crear usuario</button></div>
+  </div>
+</div></div>
 <div class="modal" id="mInv" hidden><div class="modal-card" style="max-width:820px">
   <div class="modal-head"><h3>Cargar inventario</h3><button class="x" data-close="mInv" aria-label="Cerrar">&times;</button></div>
   <div id="invBody" class="grid" style="gap:10px"></div>
