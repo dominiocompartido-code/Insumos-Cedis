@@ -1585,3 +1585,9 @@ document.addEventListener('change', async e => {
   if(error){ toast('No se pudo guardar: ' + errMsg(error)); t.value = m.proveedor || ''; return; }
   m.proveedor = v || null; t.value = v; toast(v ? `${m.descripcion}: proveedor ${v}.` : `${m.descripcion}: sin proveedor.`);
 });
+
+// tooltip de los gráficos (data-tip)
+document.addEventListener('mouseover', e => { const el = e.target.closest?.('[data-tip]'); let t = document.getElementById('tip');
+  if(!el){ if(t) t.hidden = true; return; } if(!t){ t = document.createElement('div'); t.id = 'tip'; document.body.append(t); } t.textContent = el.dataset.tip; t.hidden = false; });
+document.addEventListener('mousemove', e => { const t = document.getElementById('tip'); if(t && !t.hidden){ t.style.left = Math.min(innerWidth - t.offsetWidth - 8, e.clientX + 12) + 'px'; t.style.top = (e.clientY + 14) + 'px'; } });
+document.addEventListener('click', e => { const el = e.target.closest?.('[data-tip]'); if(!el) return; let t = document.getElementById('tip'); if(!t){ t = document.createElement('div'); t.id = 'tip'; document.body.append(t); } t.textContent = el.dataset.tip; t.hidden = false; const r = el.getBoundingClientRect(); t.style.left = Math.max(8, Math.min(innerWidth - t.offsetWidth - 8, r.left)) + 'px'; t.style.top = (r.bottom + 6) + 'px'; setTimeout(() => t.hidden = true, 2500); });
