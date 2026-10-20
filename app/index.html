@@ -1791,7 +1791,7 @@ function vConfig(){
   const q = fCfgQ.toLowerCase();
   const us = UL.filter(u => (fCfgGr === 'TODOS' || u.grupo_id === fCfgGr) && (!q || u.nombre.toLowerCase().includes(q) || (u.codigo_sala || '').includes(q))).sort((a,b) => (b.activa - a.activa));
   const sin = UL.filter(u => u.grupo_id === 'SIN').length;
-  return vRoles() + vIngreso() + `<section class="panel"><div class="panel-head"><div><h2>Aprobadores</h2><p class="sub">Cada aprobador ingresa con el correo que figure aquí. Mientras no tenga correo, sus solicitudes las puede confirmar logística.</p></div></div>
+  return vRoles() + vIngreso() + `<section class="panel${plegCls('aprob')}"><div class="panel-head"><div><h2>Aprobadores ${plegBtn('aprob')}</h2><p class="sub">Cada aprobador ingresa con el correo que figure aquí. Mientras no tenga correo, sus solicitudes las puede confirmar logística.</p></div></div>
     <div class="tbl-wrap"><table><thead><tr><th>Grupo</th><th>Nombre del aprobador</th><th>Correo para ingresar</th><th class="num">Unidades</th><th></th></tr></thead><tbody>` +
     GL.map(g => `<tr><td><strong class="gtag" data-g="${esc(g.id)}">${esc(g.nombre)}</strong><div class="sub" style="margin:0">${esc(g.tipo)}</div></td>
       <td><input id="cfgN-${g.id}" value="${esc(g.aprobador)}" maxlength="80"></td><td><input type="email" id="cfgE-${g.id}" value="${esc(g.aprobador_email || '')}" placeholder="correo@farmaciachavez.com.bo"></td>
