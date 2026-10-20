@@ -68,13 +68,13 @@ function alertas(){
   }
   // logística: entregas
   if(rol.admin){
-    const apEnt = pedidos.filter(p => p.tipo === 'Apertura' && p.estado === 'Confirmada');
+    const apEnt = pedidos.filter(p => p.tipo === 'Apertura' && p.estado === 'Aprobada');
     if(apEnt.length){ const urg = apEnt.filter(p => riesgoApertura(p));
       A.push({nivel: urg.length ? 'bad' : 'warn', apertura:true, titulo:`${plural(apEnt.length, 'apertura por entregar', 'aperturas por entregar')}`, texto:apEnt.map(p => `${U[p.unidad_id]?.nombre || ''}: ${txtAbre(p.fecha_apertura)}`).join('; ') + '. Entréguela al menos 2 días antes de la inauguración.', tab:'entregar'}); }
-    const porEnt = pedidos.filter(p => p.estado === 'Confirmada'), dEn = diasHasta(f.entrega[1]);
+    const porEnt = pedidos.filter(p => p.estado === 'Aprobada'), dEn = diasHasta(f.entrega[1]);
     if(porEnt.length && fa === 'entrega') A.push({nivel: dEn <= 3 ? 'warn' : 'info', titulo:`${plural(porEnt.length, 'solicitud por entregar', 'solicitudes por entregar')}`, texto:`Plazo de entrega a salas: hasta el ${fCorta(new Date(f.entrega[1] - 864e5))} (quedan ${plural(dEn, 'día', 'días')}).`, tab:'entregar'});
     if(porEnt.length && fa === 'cerrado') A.push({nivel:'bad', titulo:`${plural(porEnt.length, 'entrega atrasada', 'entregas atrasadas')}`, texto:'El plazo de entrega del ciclo ya terminó.', tab:'entregar'});
-    if(fa === 'compras'){ const conf = delCiclo(c, p => p.estado === 'Confirmada' || p.estado === 'Entregada').length; A.push({nivel:'info', titulo:'Fase de compras', texto:`${plural(conf, 'solicitud aprobada', 'solicitudes aprobadas')} en el ciclo. Genere el reporte de dotación en Preparación.`, tab:'preparacion'}); }
+    if(fa === 'compras'){ const conf = delCiclo(c, p => p.estado === 'Confirmada' || p.estado === 'Aprobada' || p.estado === 'Entregada').length; A.push({nivel:'info', titulo:'Fase de compras', texto:`${plural(conf, 'solicitud aprobada', 'solicitudes aprobadas')} en el ciclo. Genere el reporte de dotación en Preparación.`, tab:'preparacion'}); }
     const prev = cicloMenos(c, 1), conDot = new Set(delCicloTodos(prev, p => p.estado === 'Entregada').map(p => p.unidad_id));
     const nodot = UL.filter(u => u.activa && u.tipo === 'Sucursal' && vigenteEn(u, prev) && !conDot.has(u.id)).length;
     if(nodot && pedidos.some(p => cicloDe(p.ts) === prev)) A.push({nivel:'info', titulo:`${plural(nodot, 'sala no fue dotada', 'salas no fueron dotadas')} en ${nombreCiclo(prev)}`, texto:'Vea el detalle en Cobertura.', tab:'cobertura'});
@@ -109,7 +109,7 @@ async function notificarDelDia(){
 let fCobQ = '', fCobGr = 'TODOS', fCobSolo = true, fCobTipo = 'Sucursal', fCobEst = 'TODOS', fCobCiclo = 5;
 function estadoCiclo(uid, c){
   const l = delCicloTodos(c, p => p.unidad_id === uid); if(!l.length) return null;
-  for(const e of ['Entregada','Confirmada','Enviada','Rechazada']) if(l.some(p => p.estado === e)) return e;
+  for(const e of ['Entregada','Aprobada','Confirmada','Enviada','Rechazada']) if(l.some(p => p.estado === e)) return e;
 }
 const inicioDatos = () => pedidos.length ? Math.min(...pedidos.map(p => cicloDe(p.ts))) : cicloActivo();
 const contarSinDotar = (est, ciclos, ini) => est.slice(0, 5).filter((e, i) => ciclos[i] >= ini && e !== 'Entregada').length;
@@ -131,9 +131,9 @@ function indicadoresCiclo(c, us){
   return {c, total:vig.length, dot, pidio, cob: vig.length ? dot / vig.length * 100 : null, ped, aTiempo, pctTiempo: ped.length ? aTiempo / ped.length * 100 : null,
     dConf: prom(conf.map(p => diasEntre(p.ts, p.confirmado_ts))), dEnt: prom(ent.map(p => diasEntre(p.confirmado_ts, p.entregado_ts))), conf};
 }
-const valorSalaCiclo = (uid, c) => delCiclo(c, p => p.unidad_id === uid && (p.estado === 'Confirmada' || p.estado === 'Entregada')).reduce((a, p) => a + valorPedido(p, p.estado === 'Entregada').total, 0);
+const valorSalaCiclo = (uid, c) => delCiclo(c, p => p.unidad_id === uid && (p.estado === 'Confirmada' || p.estado === 'Aprobada' || p.estado === 'Entregada')).reduce((a, p) => a + valorPedido(p, p.estado === 'Entregada').total, 0);
 // ---------- tablero visual de cobertura ----------
-const EST_COB = [['Entregada','Dotada','var(--tile-ent)'],['Confirmada','Aprobada, por entregar','var(--tile-conf)'],['Enviada','Enviada, sin confirmar','var(--tile-env)'],['Rechazada','Rechazada','var(--tile-rech)'],['none','Sin solicitud','var(--st-none)']];
+const EST_COB = [['Entregada','Dotada','var(--tile-ent)'],['Aprobada','Aprobada, por entregar','var(--tile-conf)'],['Confirmada','En aprobación final','var(--tile-fin)'],['Enviada','Enviada, sin confirmar','var(--tile-env)'],['Rechazada','Rechazada','var(--tile-rech)'],['none','Sin solicitud','var(--st-none)']];
 const f1c = n => n == null ? '—' : (Math.round(n * 10) / 10).toLocaleString('es-BO');
 const mesCorto = c => nombreCiclo(c).slice(0, 3);
 function deltaCob(a, b, cB, mejorSube = true, suf = ' pts'){
@@ -163,7 +163,7 @@ function vCobertura(){
   const apL = Object.entries(porAp).map(([g, l]) => ({g, n:l.length, d:prom(l)})).sort((a, b) => b.d - a.d), maxD = Math.max(7, ...apL.map(x => x.d));
   const barrasAp = apL.map(x => `<div class="hb"><span class="hb-l">${esc(G[x.g]?.aprobador || x.g)}</span><span class="hb-t" data-tip="${esc(G[x.g]?.aprobador || x.g)}: ${f1c(x.d)} días en promedio (${plural(x.n, 'solicitud', 'solicitudes')})"><span class="hb-f ${x.d > 5 ? 'tarde' : ''}" style="width:${x.d / maxD * 100}%"></span><span class="hb-meta" style="left:${5 / maxD * 100}%" title="Meta: 5 días"></span></span><span class="hb-v">${f1c(x.d)} d</span></div>`).join('') || '<p class="sub">Todavía no hay solicitudes confirmadas en este ciclo.</p>';
   // D) consumo total por ciclo (Bs)
-  const consC = conP ? ciclos.map(cc => ({c:cc, v: delCiclo(cc, p => us.some(u => u.id === p.unidad_id) && (p.estado === 'Confirmada' || p.estado === 'Entregada')).reduce((a, p) => a + valorPedido(p, p.estado === 'Entregada').total, 0)})) : [];
+  const consC = conP ? ciclos.map(cc => ({c:cc, v: delCiclo(cc, p => us.some(u => u.id === p.unidad_id) && (p.estado === 'Confirmada' || p.estado === 'Aprobada' || p.estado === 'Entregada')).reduce((a, p) => a + valorPedido(p, p.estado === 'Entregada').total, 0)})) : [];
   const maxV = Math.max(1, ...consC.map(x => x.v));
   const colCons = consC.map((x, i) => `<div class="col${i === idx ? ' on' : ''}"><span class="col-v">${x.v && (i === idx || i === idx - 1) ? 'Bs ' + Math.round(x.v).toLocaleString('es-BO') : ''}</span><div class="stack" style="height:${H}px"><span class="seg serie" style="height:${x.v ? Math.max(2, x.v / maxV * H) : 2}px" data-tip="${esc(nombreCiclo(x.c))}: ${fBs(x.v)}"></span></div><span class="col-l">${esc(mesCorto(x.c))}</span></div>`).join('');
   // E) salas fuera de lo normal: consumo del ciclo vs su promedio de los 3 anteriores
@@ -172,7 +172,7 @@ function vCobertura(){
   const barrasF = fuera.map(x => `<div class="hb"><span class="hb-l">${esc(x.u.nombre)}</span><span class="hb-t" data-tip="${esc(x.u.nombre)}: ${fBs(x.v)} este ciclo · promedio ${fBs(x.pr)}"><span class="hb-f ${x.r >= 1.5 ? 'alto' : 'bajo'}" style="width:${x.v / maxF * 100}%"></span><span class="hb-prom" style="left:${x.pr / maxF * 100}%"></span></span><span class="hb-v ${x.r >= 1.5 ? 'neg' : ''}">${x.r >= 1 ? '+' : ''}${Math.round((x.r - 1) * 100)}%</span></div>`).join('');
   // F) salas sin solicitud
   const sinSol = us.filter(u => vigenteEn(u, c) && c >= ini && !estadoCiclo(u.id, c)).sort((a, b) => ordU(a) - ordU(b));
-  const porEnt = us.filter(u => vigenteEn(u, c) && estadoCiclo(u.id, c) === 'Confirmada').length;
+  const porEnt = us.filter(u => vigenteEn(u, c) && estadoCiclo(u.id, c) === 'Aprobada').length;
   const kpi = (t, v, d, s, cls = '') => `<div class="ind ${cls}"><div class="ind-t">${t}</div><div class="ind-v">${v}</div>${d}<div class="ind-s">${s}</div></div>`;
   return `<section class="panel"><div class="panel-head"><div><h2>Cobertura e indicadores</h2><p class="sub">${verTodoCob() ? 'Todas las salas' : esc(gs.map(g => g.nombre).join(', '))} · el ciclo elegido comparado con el anterior. Pase el mouse sobre las barras para ver el detalle.</p></div>
     <div class="row"><label class="f" style="margin:0">Ciclo<select id="fIndCiclo">${ciclos.map((cc, i) => i ? `<option value="${i}" ${i === idx ? 'selected' : ''}>${esc(nombreCiclo(cc))}${i === 5 ? ' (en curso)' : ''}</option>` : '').join('')}</select></label>
@@ -198,7 +198,7 @@ function vCobertura(){
 function exportarCobertura(){
   const c = cicloActivo(), ciclos = [5,4,3,2,1,0].map(k => cicloMenos(c, k)), W = XL.libro(), h = W.hoja('Cobertura');
   const cab = {b:true, sz:10, color:'FFFFFFFF', fill:'FF1F3864', h:'center', v:'center', wrap:true, bt:'thin', bb:'thin', bl:'thin', br:'thin'};
-  const COL = {Entregada:'FFC6EFCE', Confirmada:'FFDDEBF7', Enviada:'FFFFEB9C', Rechazada:'FFFFC7CE'};
+  const COL = {Entregada:'FFC6EFCE', Aprobada:'FFDDEBF7', Confirmada:'FFE9DDF7', Enviada:'FFFFEB9C', Rechazada:'FFFFC7CE'};
   ['Cod. Sucursal','Sala / área','Muelle','Aprueba', ...ciclos.map(nombreCiclo), 'Ciclos sin dotar'].forEach((t, i) => h.set(0, i, t, cab));
   h.altos[0] = 30; [10,32,10,26,11,11,11,11,11,11,10].forEach((w, i) => h.anchos[i] = w);
   unidadesCob(fCobTipo, fCobGr).sort((a,b) => ordU(a) - ordU(b)).forEach((u, r) => {

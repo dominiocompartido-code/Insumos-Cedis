@@ -21,12 +21,12 @@
     const r = rnd();
     if(r < .06){ p.estado = 'Rechazada'; p.motivo_rechazo = pick(['Ya se envió dotación este mes.','Cantidades fuera del consumo habitual.','Solicitud duplicada.']); }
     else { if(rnd() < .3){ p.items_original = p.items.map(z => ({...z})); p.items = p.items.map((z,j) => j === 0 ? {...z, cantidad:Math.max(1, Math.round(z.cantidad/2))} : z); p.nota = 'Se ajustó al consumo promedio.'; }
-      if(ci === 1 && r > .93){ p.estado = 'Confirmada'; } else { p.estado = 'Entregada'; p.entregado_ts = iso(new Date(y, mo + 1, 1 + Math.floor(rnd() * 10), 15).getTime()); p.recibido_por = 'Personal de la sucursal'; } }
+      if(ci === 1 && r > .93){ p.estado = 'Aprobada'; p.aprobado_ts = p.confirmado_ts; } else { p.estado = 'Entregada'; p.entregado_ts = iso(new Date(y, mo + 1, 1 + Math.floor(rnd() * 10), 15).getTime()); p.recibido_por = 'Personal de la sucursal'; } }
     pedidos.push(p);
   }));
   // ciclo actual (octubre): algunas ya enviaron
   unidades.forEach(u => { if(rnd() > .42) return; const p = base(u, new Date(2026, 9, 10 + Math.floor(rnd() * 3), 9 + Math.floor(rnd() * 8), Math.floor(rnd() * 60)).getTime(), items());
-    if(rnd() < .25){ p.estado = 'Confirmada'; p.confirmado_ts = iso(new Date(2026, 9, 12, 16).getTime()); } pedidos.push(p); });
+    if(rnd() < .25){ p.confirmado_ts = iso(new Date(2026, 9, 12, 16).getTime()); const gu = D.unidades.find(x => x.id === p.unidad_id)?.grupo_id; if(p.tipo !== 'Apertura' && !['CEDIS','OFC'].includes(gu) && rnd() < .4) p.estado = 'Confirmada'; else { p.estado = 'Aprobada'; p.aprobado_ts = p.confirmado_ts; } } pedidos.push(p); });
   D.unidades.push({id:'SUC-230', nombre:'SUC-230 NUEVA SALA DEMO', tipo:'Sucursal', grupo_id:'SUP-YESSICA', codigo_sala:null, muelle:null, regional:'SANTA CRUZ', activa:true, creada_ts:iso(NOW - 4 * 24 * H)});
   D.precios = [{"codigo": "15574", "precio": 10.8132}, {"codigo": "15564", "precio": 14.789}, {"codigo": "15519", "precio": 3.19}, {"codigo": "34896", "precio": 10.005}, {"codigo": "34897", "precio": 13.3328}, {"codigo": "33581", "precio": 36.54}, {"codigo": "27228", "precio": 42.1949}, {"codigo": "27230", "precio": 42.195}, {"codigo": "27232", "precio": 36.6625}, {"codigo": "25645", "precio": 28.5572}, {"codigo": "27229", "precio": 36.5098}, {"codigo": "27231", "precio": 40.1591}, {"codigo": "15563", "precio": 15.66}, {"codigo": "26336", "precio": 19.1397}, {"codigo": "15557", "precio": 84.64}, {"codigo": "27008", "precio": 82.4322}, {"codigo": "15532", "precio": 2.2114}, {"codigo": "15529", "precio": 8.5761}, {"codigo": "15530", "precio": 13.7473}, {"codigo": "15527", "precio": 24.36}, {"codigo": "18158", "precio": 41.735}, {"codigo": "15525", "precio": 12.1808}, {"codigo": "15573", "precio": 47.85}, {"codigo": "15571", "precio": 9.565}, {"codigo": "15550", "precio": 30.3764}, {"codigo": "32066", "precio": 118.5938}, {"codigo": "31724", "precio": 75.798}, {"codigo": "26610", "precio": 14.3292}, {"codigo": "15896", "precio": 45.8733}, {"codigo": "20131", "precio": 49.59}, {"codigo": "15533", "precio": 4.7827}, {"codigo": "15568", "precio": 11.434}, {"codigo": "27029", "precio": 40.02}, {"codigo": "27028", "precio": 13.92}, {"codigo": "15559", "precio": 7.396}, {"codigo": "17159", "precio": 21.75}, {"codigo": "20458", "precio": 13.92}, {"codigo": "15570", "precio": 27.375}, {"codigo": "26997", "precio": 13.5645}, {"codigo": "15547", "precio": 4.7474}, {"codigo": "15569", "precio": 30.45}, {"codigo": "25225", "precio": 7.395}, {"codigo": "25226", "precio": 9.57}, {"codigo": "15663", "precio": 43.5382}, {"codigo": "15664", "precio": 47.7667}, {"codigo": "15554", "precio": 261.0}, {"codigo": "15543", "precio": 7.4553}, {"codigo": "22614", "precio": 20.1178}, {"codigo": "25664", "precio": 40.6}, {"codigo": "24982", "precio": 14.6251}, {"codigo": "24568", "precio": 5.9164}, {"codigo": "15534", "precio": 32.4224}, {"codigo": "35417", "precio": 6.09}, {"codigo": "31661", "precio": 33.234}, {"codigo": "15545", "precio": 6.5037}, {"codigo": "25639", "precio": 13.398}, {"codigo": "15575", "precio": 25.8375}, {"codigo": "15540", "precio": 8.5}, {"codigo": "19040", "precio": 8.2622}, {"codigo": "16018", "precio": 0.9077}, {"codigo": "16021", "precio": 0.4345}, {"codigo": "16020", "precio": 2.2737}, {"codigo": "25533", "precio": 1.3017}, {"codigo": "26979", "precio": 121.6225}, {"codigo": "15556", "precio": 25.52}, {"codigo": "18474", "precio": 5.2386}, {"codigo": "15542", "precio": 5.58}, {"codigo": "15567", "precio": 8.985}, {"codigo": "15581", "precio": 9.135}];
   D.maestro.forEach((x, k) => { if(!x.proveedor) x.proveedor = ['ANTALIS','CIMBOL','ANTALIS','PAPELERIA LA PAZ',null][k % 5]; });
@@ -58,13 +58,16 @@
       if(b.accion === 'restablecer') return Promise.resolve({data: ya ? {ok:true} : {error:'Ese correo no tiene cuenta. Créela primero.'}, error:null});
       return Promise.resolve({data:{error:'Acción no válida'}, error:null}); } },
     rpc(name, a){
+      const reqFin = q => { const u = D.unidades.find(x => x.id === q.unidad_id); return q.tipo !== 'Apertura' && !['CEDIS','OFC'].includes(u?.grupo_id); };
+      const tras = q => { if(reqFin(q)) q.estado = 'Confirmada'; else { q.estado = 'Aprobada'; q.aprobado_ts = q.confirmado_ts; } };
       if(name === 'mi_rol') return res(rolActual() || {admin:false, grupos:[]});
       const p = pedidos.find(x => x.id === a?.p_id); const now = iso(Date.now());
-      if(name === 'confirmar_pedido'){ if(p.estado !== 'Enviada') return err('El pedido ya no está pendiente'); if(JSON.stringify(p.items) !== JSON.stringify(a.p_items)) p.items_original = p.items_original || p.items; p.items = a.p_items; p.estado = 'Confirmada'; p.confirmado_ts = now; p.nota = (a.p_nota || '').trim() || null; }
-      if(name === 'rechazar_pedido'){ p.estado = 'Rechazada'; p.confirmado_ts = now; p.motivo_rechazo = a.p_motivo; }
+      if(name === 'confirmar_pedido'){ if(p.estado !== 'Enviada') return err('El pedido ya no está pendiente'); if(JSON.stringify(p.items) !== JSON.stringify(a.p_items)) p.items_original = p.items_original || p.items; p.items = a.p_items; p.confirmado_ts = now; tras(p); p.nota = (a.p_nota || '').trim() || null; }
+      if(name === 'rechazar_pedido'){ if(p.estado === 'Confirmada'){ p.aprobado_ts = now; p.aprobado_por = 'helen'; } p.estado = 'Rechazada'; p.confirmado_ts = p.confirmado_ts || now; p.motivo_rechazo = a.p_motivo; }
       if(name === 'entregar_pedido'){ p.estado = 'Entregada'; p.entregado_ts = now; p.recibido_por = (a.p_recibido || '').trim() || null; }
-      if(name === 'confirmar_varios'){ let c = 0; a.p_ids.forEach(id => { const q = pedidos.find(x => x.id === id); if(q && q.estado === 'Enviada'){ q.estado = 'Confirmada'; q.confirmado_ts = now; c++; } }); return res(c); }
-      if(name === 'entregar_varios'){ let c = 0; a.p_ids.forEach(id => { const q = pedidos.find(x => x.id === id); if(q && q.estado === 'Confirmada'){ q.estado = 'Entregada'; q.entregado_ts = now; q.recibido_por = (a.p_recibido || '').trim() || null; c++; } }); return res(c); }
+      if(name === 'confirmar_varios'){ let c = 0; a.p_ids.forEach(id => { const q = pedidos.find(x => x.id === id); if(q && q.estado === 'Enviada'){ q.confirmado_ts = now; tras(q); c++; } }); return res(c); }
+      if(name === 'aprobar_final'){ let c = 0; a.p_ids.forEach(id => { const q = pedidos.find(x => x.id === id); if(q && q.estado === 'Confirmada'){ q.estado = 'Aprobada'; q.aprobado_ts = now; q.aprobado_por = 'helen'; c++; } }); return res(c); }
+      if(name === 'entregar_varios'){ let c = 0; a.p_ids.forEach(id => { const q = pedidos.find(x => x.id === id); if(q && q.estado === 'Aprobada'){ q.estado = 'Entregada'; q.entregado_ts = now; q.recibido_por = (a.p_recibido || '').trim() || null; c++; } }); return res(c); }
       if(name === 'crear_unidad'){
         const g = D.grupos.find(x => x.id === a.p_grupo); let nom = (a.p_nombre || '').trim().replace(/\s+/g, ' ').toUpperCase();
         if(D.unidades.some(u => u.nombre.toLowerCase() === nom.toLowerCase())) return err('Ya existe una sala o área con ese nombre');
@@ -78,7 +81,7 @@
       if(name === 'crear_material'){ const cod = (a.p_codigo||'').trim(), d = (a.p_descripcion||'').trim().replace(/\s+/g,' ').toUpperCase();
         if(D.maestro.some(y => y.codigo === cod)) return err('El código ' + cod + ' ya existe'); if(D.maestro.some(y => y.descripcion.toUpperCase() === d)) return err('Ya existe un material con ese nombre');
         const x = {codigo:cod, descripcion:d, unidad:(a.p_unidad||'').toUpperCase(), categoria:a.p_categoria||'General', subcategoria:'General'}; D.maestro.push(x); return res(x); }
-      if(name === 'guardar_traspaso'){ const x = pedidos.find(y => y.id === a.p_id); if(!x || !['Confirmada','Entregada'].includes(x.estado)) return err('La solicitud debe estar confirmada o entregada'); x.nro_traspaso = (a.p_nro || '').trim() || null; return res(null); }
+      if(name === 'guardar_traspaso'){ const x = pedidos.find(y => y.id === a.p_id); if(!x || !['Confirmada','Aprobada','Entregada'].includes(x.estado)) return err('La solicitud debe estar confirmada o entregada'); x.nro_traspaso = (a.p_nro || '').trim() || null; return res(null); }
       if(name === 'guardar_precio'){ const x = D.precios.find(y => y.codigo === a.p_codigo); if(x) x.precio = a.p_precio; else D.precios.push({codigo:a.p_codigo, precio:a.p_precio}); return res(null); }
       if(name === 'guardar_kit'){ const k = D.config.find(x => x.clave === 'kit_apertura'); k.valor = a.p_items.filter(x => +x.cantidad > 0).map(x => ({codigo:x.codigo, cantidad:+x.cantidad})); return res(k.valor.length); }
       if(name === 'fijar_exigir_ingreso'){ const c = (D.config || []).find(x => x.clave === 'exigir_ingreso'); if(c) c.valor = a.p_valor; else (D.config = D.config || []).push({clave:'exigir_ingreso', valor:a.p_valor}); return res(null); }
@@ -89,7 +92,7 @@
       if(name === 'guardar_admin'){ D.admins ||= []; const e = a.p_email.toLowerCase(); const x = D.admins.find(y => y.email === e); if(x) x.activo = a.p_activo; else D.admins.push({email:e, nombre:a.p_nombre, activo:a.p_activo}); return res(null); }
       if(name === 'guardar_correo_unidad'){ const u = D.unidades.find(x => x.id === a.p_id); if(!u) return err('Sala no encontrada'); const c = (a.p_correo || '').trim().toLowerCase() || null; if(c && D.unidades.some(x => x.id !== u.id && x.correo === c)) return err('Ese correo ya está asignado a otra sala o área'); u.correo = c; return res(null); }
       if(name === 'editar_unidad'){ const u = D.unidades.find(x => x.id === a.p_id); if(!u) return err('Sala no encontrada'); Object.assign(u, {codigo_sala:a.p_codigo || null, muelle:a.p_muelle || null, regional:(a.p_regional || '').toUpperCase() || null}); if(a.p_creada) u.creada_ts = new Date(a.p_creada + 'T12:00:00').toISOString(); return res(null); }
-      if(name === 'entregar_ajustado'){ const x = pedidos.find(y => y.id === a.p_id); if(!x || x.estado !== 'Confirmada') return err('El pedido no está confirmado');
+      if(name === 'entregar_ajustado'){ const x = pedidos.find(y => y.id === a.p_id); if(!x || x.estado !== 'Aprobada') return err('El pedido no está aprobado');
         let dif = false; const ent = x.items.map(i => { const q = a.p_items ? (a.p_items.find(z => z.codigo === i.codigo)?.cantidad ?? i.cantidad) : i.cantidad; if(+q !== +i.cantidad) dif = true; return {...i, cantidad:+q}; });
         if(dif && !(a.p_nota || '').trim()) return err('Indique el motivo de la diferencia en la entrega');
         Object.assign(x, {estado:'Entregada', entregado_ts:iso(Date.now()), recibido_por:a.p_recibido || null, items_entregados:dif ? ent : null, nota_entrega:dif ? a.p_nota : null}); return res(null); }
@@ -97,12 +100,12 @@
       if(name === 'cerrar_material'){ const x = D.maestro.find(y => y.codigo === a.p_codigo); if(x) x.activo = !!a.p_activo; return res(x); }
       if(name === 'cambiar_categoria'){ const x = D.maestro.find(y => y.codigo === a.p_codigo); if(x) x.categoria = a.p_categoria; return res(x); }
       if(name === 'cerrar_unidad'){ const u = D.unidades.find(x => x.id === a.p_id); if(u) u.activa = !!a.p_activa; return res(null); }
-      if(name === 'reabrir_pedido'){ p.estado = 'Enviada'; p.confirmado_ts = null; p.motivo_rechazo = null; }
+      if(name === 'reabrir_pedido'){ p.estado = 'Enviada'; p.confirmado_ts = null; p.aprobado_ts = null; p.motivo_rechazo = null; }
       return res(null); },
     auth: { onAuthStateChange(cb){ window.__authCb = cb; setTimeout(() => cb('INITIAL_SESSION', null), 10); return {data:{subscription:{unsubscribe(){}}}}; },
       signOut(){ window.__ROL = null; window.__authCb && window.__authCb('SIGNED_OUT', null); return res(null); },
       signInWithPassword(){ return err('demo'); }, signUp(){ return err('demo'); }, resetPasswordForEmail(){ return err('demo'); }, updateUser(){ return res(null); } },
     channel(){ const c = {on(){ return c; }, subscribe(){ return c; }}; return c; },
   }; return cli; }};
-  window.verComo = v => { window.__ROL = v === 'sol' ? null : String(v).startsWith('u:') ? {admin:false, grupos:[], unidad:v.slice(2)} : v === 'consulta' ? {admin:false, consulta:true, grupos:[]} : v === 'log' ? {admin:true, grupos:[]} : {admin:false, grupos:[v]}; window.__authCb && window.__authCb('SIGNED_IN', window.__ROL ? {user:{}} : null); };
+  window.verComo = v => { window.__ROL = v === 'sol' ? null : String(v).startsWith('u:') ? {admin:false, grupos:[], unidad:v.slice(2)} : v === 'consulta' ? {admin:false, consulta:true, grupos:[]} : v === 'log' ? {admin:true, final:true, grupos:[]} : v === 'OFC' ? {admin:false, final:true, grupos:['OFC']} : {admin:false, grupos:[v]}; window.__authCb && window.__authCb('SIGNED_IN', window.__ROL ? {user:{}} : null); };
 })();

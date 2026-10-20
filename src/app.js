@@ -18,7 +18,9 @@ const horas = ms => ms / H;
 const titulo = s => String(s || '').toLocaleLowerCase('es').replace(/(^|[\s\-(])(\p{L})/gu, (m, a, b) => a + b.toLocaleUpperCase('es')).trim();
 const fDias = h => { const d = h / 24; if(d < 1) return 'menos de 1 día'; const v = d < 10 ? Math.round(d * 10) / 10 : Math.round(d); return `${String(v).replace('.', ',')} ${v === 1 ? 'día' : 'días'}`; };
 const hace = ts => { const h = horas(Date.now() - ts); return h < 1 ? 'hace minutos' : h < 24 ? `hace ${Math.round(h)} h` : `hace ${Math.round(h/24)} d`; };
-const chip = e => `<span class="chip ${esc(e)}">${esc(e)}</span>`;
+const EST_TXT = {Confirmada:'Por aprobación final', Aprobada:'Aprobada'};
+const chip = e => `<span class="chip ${esc(e)}">${esc(EST_TXT[e] || e)}</span>`;
+const esFinal = () => !!rol.final;
 const store = { get(k){ try{ return localStorage.getItem(k); }catch(e){ return null; } }, set(k,v){ try{ localStorage.setItem(k,v); }catch(e){} } };
 function toast(m){ const t = $('toast'); t.textContent = m; t.hidden = false; clearTimeout(toast._t); toast._t = setTimeout(() => t.hidden = true, 4000); }
 document.addEventListener('click', e => { const c = e.target.closest('[data-close]'); if(c) $(c.dataset.close).hidden = true; });
@@ -115,12 +117,13 @@ let recarga; const programar = fn => { clearTimeout(recarga); recarga = setTimeo
 const esConsulta = () => !rol.admin && !!rol.consulta && !rol.grupos.length;
 const verTablero = () => rol.admin || !!rol.consulta || rol.grupos.some(g => g === 'OFC' || g === 'CEDIS');
 const esJefatura = () => !rol.admin && !esConsulta() && verTablero();
-const SUB_TABLERO = [['tablero','Resumen'],['bandeja','Por confirmar'],['preparacion','Preparación'],['entregar','Por entregar']];
+const SUB_TABLERO = [['tablero','Resumen'],['bandeja','Por confirmar'],['final','Aprobación final'],['preparacion','Preparación'],['entregar','Por entregar']];
+const subTab = () => SUB_TABLERO.filter(x => (x[0] !== 'final' || esFinal()) && (x[0] !== 'bandeja' || !esConsulta()));
 function tabsDisponibles(){
-  if(esConsulta()) return [...(salaUsuario() ? [['solicitar','Solicitar'], ['seguimiento','Seguimiento']] : []), ['tablero','Tablero', SUB_TABLERO.filter(x => x[0] !== 'bandeja')], ['inventario','Inventario'], ['cobertura','Cobertura'], ['todos','Todos'], ['materiales','Materiales']];
+  if(esConsulta()) return [...(salaUsuario() ? [['solicitar','Solicitar'], ['seguimiento','Seguimiento']] : []), ['tablero','Tablero', subTab()], ['inventario','Inventario'], ['cobertura','Cobertura'], ['todos','Todos'], ['materiales','Materiales']];
   const t = [['solicitar','Solicitar']]; if(rol.admin || !rol.grupos.length) t.push(['seguimiento','Seguimiento']);
-  if(rol.admin) t.push(['tablero','Tablero', SUB_TABLERO], ['inventario','Inventario'], ['cobertura','Cobertura'], ['todos','Todos']);
-  else if(verTablero()) t.push(['tablero','Tablero', SUB_TABLERO], ['inventario','Inventario'], ['grupo','Mi grupo'], ['cobertura','Cobertura'], ['todos','Todos']);
+  if(rol.admin) t.push(['tablero','Tablero', subTab()], ['inventario','Inventario'], ['cobertura','Cobertura'], ['todos','Todos']);
+  else if(verTablero()) t.push(['tablero','Tablero', subTab()], ['inventario','Inventario'], ['grupo','Mi grupo'], ['cobertura','Cobertura'], ['todos','Todos']);
   else if(rol.grupos.length) t.push(['bandeja','Por confirmar'], ['grupo','Mi grupo'], ['cobertura','Cobertura']);
   t.push(['materiales','Materiales']);
   if(rol.admin) t.push(['config','Configuración']);
@@ -129,15 +132,16 @@ function tabsDisponibles(){
 const planoTabs = ts => ts.flatMap(([id,l,sub]) => sub ? sub : [[id,l]]);
 let subAbierto = false;
 function actualizarInsignia(c){
-  const n = (c.bandeja || 0) + (rol.admin ? (c.entregar || 0) : 0);
+  const n = (c.bandeja || 0) + (c.final || 0) + (rol.admin ? (c.entregar || 0) : 0);
   try{ document.title = (n ? `(${n}) ` : '') + 'Farmacias Chávez'; }catch(e){}
   try{ if(navigator.setAppBadge){ n ? navigator.setAppBadge(n) : navigator.clearAppBadge(); } }catch(e){}
 }
 function contadores(){
   const c = {};
   c.bandeja = pedidos.filter(p => p.estado === 'Enviada' && puedeAprobar(p)).length;
-  if(rol.admin){ c.entregar = pedidos.filter(p => p.estado === 'Confirmada').length; c.tablero = c.bandeja + c.entregar; }
-  else if(verTablero()){ c.entregar = pedidos.filter(p => p.estado === 'Confirmada').length; c.tablero = c.bandeja; }
+  if(esFinal()) c.final = pedidos.filter(p => p.estado === 'Confirmada').length;
+  if(rol.admin){ c.entregar = pedidos.filter(p => p.estado === 'Aprobada').length; c.tablero = c.bandeja + (c.final || 0) + c.entregar; }
+  else if(verTablero()){ c.entregar = pedidos.filter(p => p.estado === 'Aprobada').length; c.tablero = c.bandeja + (c.final || 0); }
   return c;
 }
 $('tabs').addEventListener('click', e => { const b = e.target.closest('[data-tab]'); if(!b) return; if(!b.dataset.grupo) cerrarMenu();
@@ -168,7 +172,7 @@ function render(){
   const ts = tabsDisponibles(); if(!tab || !planoTabs(ts).some(t => t[0] === tab)) tab = ts[0][0];
   const c = contadores(); actualizarInsignia(c); const enGrupo = SUB_TABLERO.some(x => x[0] === tab) && ts.some(t => t[2]);
   if(enGrupo && !render._g) subAbierto = true; if(!enGrupo) subAbierto = false; render._g = enGrupo;
-  const ICO = {solicitar:'📝', seguimiento:'🔎', tablero:'📊', bandeja:'✅', preparacion:'📦', entregar:'🚚', cobertura:'🗺️', todos:'📋', grupo:'👥', materiales:'🧴', config:'⚙️', inventario:'🏬'};
+  const ICO = {final:'🛡️', solicitar:'📝', seguimiento:'🔎', tablero:'📊', bandeja:'✅', preparacion:'📦', entregar:'🚚', cobertura:'🗺️', todos:'📋', grupo:'👥', materiales:'🧴', config:'⚙️', inventario:'🏬'};
   const badge = (id, n) => n ? ` <span class="badge">${n}</span>` : '';
   $('tabs').innerHTML = ts.map(([id,l,sub]) => sub
     ? `<button role="tab" data-tab="${id}" data-grupo="1" class="${enGrupo ? 'grupo-on' : ''}" aria-selected="false" aria-expanded="${subAbierto}"><span class="ico">${ICO[id] || '•'}</span>${l}${badge(id, c[id])}<span class="caret" aria-hidden="true">&#9662;</span></button>` +
@@ -176,7 +180,7 @@ function render(){
     : `<button role="tab" data-tab="${id}" aria-selected="${tab === id}"><span class="ico">${ICO[id] || '•'}</span>${l}${badge(id, c[id])}</button>`).join('');
   $('subtabs').hidden = true; $('subtabs').innerHTML = '';
   const bloqueo = vBloqueo(); if(bloqueo){ $('tabs').innerHTML = ''; $('main').innerHTML = bloqueo; actualizarCampana(); return; }
-  const V = {solicitar:vSolicitar, seguimiento:vSeguimiento, materiales:vMateriales, bandeja:vBandeja, grupo:vGrupo, tablero:vTablero, entregar:vEntregar, preparacion:vPreparacion, cobertura:vCobertura, todos:vTodos, config:vConfig, inventario:vInventario};
+  const V = {final:vFinal, solicitar:vSolicitar, seguimiento:vSeguimiento, materiales:vMateriales, bandeja:vBandeja, grupo:vGrupo, tablero:vTablero, entregar:vEntregar, preparacion:vPreparacion, cobertura:vCobertura, todos:vTodos, config:vConfig, inventario:vInventario};
   const foco = document.activeElement?.id, pos = document.activeElement?.selectionStart;
   $('main').innerHTML = V[tab]();
   if(foco && $(foco) && $(foco).tagName === 'INPUT'){ $(foco).focus(); try{ $(foco).setSelectionRange(pos,pos); }catch(e){} }
@@ -458,9 +462,9 @@ function tabla(lista, cols, vacio, conSel){
     items: ['Ítems', p => `<td class="num">${p.items.length}</td>`],
     valor: ['Valor', p => { const v = valorPedido(p, p.estado === 'Entregada'); return `<td class="num" style="white-space:nowrap">${v.total ? fBs(v.total) : '–'}${v.sin ? `<div class="sub" style="margin:0" title="Insumos sin precio cargado">${v.sin} sin precio</div>` : ''}</td>`; }],
     estado: ['Estado', p => `<td>${chip(p.estado)}${p.origen === 'historico' ? ' <span class="chip" title="Cargado desde el reporte de traspasos">histórico</span>' : ''}${p.items_original ? ' <span class="chip ajuste">ajustada</span>' : ''}${p.items_entregados ? ' <span class="chip alerta">entrega parcial</span>' : ''}${p.tipo === 'Apertura' ? ` <span class="chip apertura">Apertura${p.fecha_apertura && p.estado !== 'Entregada' ? ' · ' + esc(txtAbre(p.fecha_apertura)) : ''}</span>` : ''}${tarde(p) ? ' <span class="chip">fuera de plazo</span>' : ''}${p.estado === 'Enviada' && horas(Date.now() - p.ts) > 48 ? ' <span class="chip alerta">+2 días</span>' : ''}</td>`],
-    traspaso: ['N° traspaso', p => !usaTraspaso(p) ? '<td class="sub">No aplica</td>' : rol.admin && p.estado === 'Confirmada' ? `<td class="td-trasp"><input class="trasp-in" data-trasp="${esc(p.id)}" value="${esc(p.nro_traspaso || '')}" maxlength="40" placeholder="Escriba…" aria-label="Número de traspaso de ${esc(p.codigo)}"></td>` : `<td class="mono">${esc(p.nro_traspaso || '–')}</td>`],
+    traspaso: ['N° traspaso', p => !usaTraspaso(p) ? '<td class="sub">No aplica</td>' : rol.admin && p.estado === 'Aprobada' ? `<td class="td-trasp"><input class="trasp-in" data-trasp="${esc(p.id)}" value="${esc(p.nro_traspaso || '')}" maxlength="40" placeholder="Escriba…" aria-label="Número de traspaso de ${esc(p.codigo)}"></td>` : `<td class="mono">${esc(p.nro_traspaso || '–')}</td>`],
     anular: ['', p => `<td class="num">${p.estado === 'Enviada' && (claves[p.id] || rol.admin || (sesion && (rol.unidad === p.unidad_id || rol.grupos.includes(U[p.unidad_id]?.grupo_id)))) ? `<button class="btn btn-sm btn-danger" data-anular="${esc(p.id)}">Anular</button>` : ''}</td>`],
-    avance: ['Último avance', p => `<td class="sub">${p.estado === 'Anulada' ? 'Anulada ' + fFH(p.anulado_ts) : p.entregado_ts ? 'Entregada ' + fFH(p.entregado_ts) + (p.nro_traspaso ? ' · Traspaso ' + esc(p.nro_traspaso) : '') : p.confirmado_ts ? (p.estado === 'Rechazada' ? 'Rechazada ' : 'Confirmada ') + fFH(p.confirmado_ts) : 'Esperando confirmación'}</td>`],
+    avance: ['Último avance', p => `<td class="sub">${p.estado === 'Anulada' ? 'Anulada ' + fFH(p.anulado_ts) : p.entregado_ts ? 'Entregada ' + fFH(p.entregado_ts) + (p.nro_traspaso ? ' · Traspaso ' + esc(p.nro_traspaso) : '') : p.estado === 'Rechazada' ? 'Rechazada ' + fFH(p.aprobado_ts || p.confirmado_ts) : p.aprobado_ts ? 'Aprobada ' + fFH(p.aprobado_ts) : p.confirmado_ts ? 'Confirmada ' + fFH(p.confirmado_ts) + ' · falta aprobación final' : 'Esperando confirmación'}</td>`],
   };
   if(verPrecios() && cols.includes('items') && !cols.includes('valor')) cols = cols.flatMap(c => c === 'items' ? ['items','valor'] : [c]);
   if(conSel) visibles = lista.map(p => p.id);
@@ -469,21 +473,22 @@ function tabla(lista, cols, vacio, conSel){
     (lista.length ? lista.map(p => `<tr class="click fila-${esc(p.estado)}${conSel && sel.has(p.id) ? ' marcada' : ''}" data-ver="${esc(p.id)}" tabindex="0">${conSel ? `<td class="chk"><input type="checkbox" data-sel="${esc(p.id)}" ${sel.has(p.id) ? 'checked' : ''} aria-label="Seleccionar ${esc(p.codigo)}"></td>` : ''}${cols.map(c => C[c][1](p)).join('')}</tr>`).join('') : `<tr><td colspan="${cols.length + (conSel ? 1 : 0)}" class="empty">${vacio}</td></tr>`) + '</tbody></table></div>';
 }
 function kpis(lista){
-  const env = lista.filter(p => p.estado === 'Enviada'), conf = lista.filter(p => p.estado === 'Confirmada');
+  const env = lista.filter(p => p.estado === 'Enviada'), conf = lista.filter(p => p.estado === 'Aprobada'), fin = lista.filter(p => p.estado === 'Confirmada');
   const ent7 = lista.filter(p => p.estado === 'Entregada' && Date.now() - p.entregado_ts < 7 * 24 * H);
   const ct = lista.filter(p => p.confirmado_ts), prom = ct.length ? ct.reduce((a,p) => a + horas(p.confirmado_ts - p.ts), 0) / ct.length : null;
   const et = lista.filter(p => p.entregado_ts && p.confirmado_ts), promE = et.length ? et.reduce((a,p) => a + horas(p.entregado_ts - p.confirmado_ts), 0) / et.length : null;
   const atras = env.filter(p => horas(Date.now() - p.ts) > 48).length;
   return `<div class="kpis">
     <div class="kpi env"><p>Por confirmar</p><b>${env.length}</b><span>${atras ? `<span class="chip alerta">${atras} con más de 2 días</span>` : 'al día'}</span></div>
-    <div class="kpi conf"><p>Confirmadas por entregar</p><b>${conf.length}</b><span>listas para preparar</span></div>
+    <div class="kpi fin"><p>En aprobación final</p><b>${fin.length}</b><span>esperan a Finanzas</span></div>
+    <div class="kpi conf"><p>Aprobadas por entregar</p><b>${conf.length}</b><span>listas para preparar</span></div>
     <div class="kpi ent"><p>Entregadas · 7 días</p><b>${ent7.length}</b><span>solicitudes</span></div>
     <div class="kpi tiempo"><p>Tiempo a confirmar</p><b>${prom == null ? '–' : fDias(prom)}</b><span>promedio</span></div>
     <div class="kpi tiempo"><p>Tiempo a entregar</p><b>${promE == null ? '–' : fDias(promE)}</b><span>desde la confirmación</span></div>${verPrecios() ? (() => { const c = cicloActivo(), l = lista.filter(p => cicloDe(p.ts) === c && (p.estado === 'Confirmada' || p.estado === 'Entregada')), v = l.reduce((a,p) => a + valorPedido(p, p.estado === 'Entregada').total, 0); return `<div class="kpi valor"><p>Valor del ciclo · ${esc(nombreCiclo(c))}</p><b>${fBs(v)}</b><span>${plural(l.length, 'solicitud aprobada', 'solicitudes aprobadas')}</span></div>`; })() : ''}</div>`;
 }
 function mapa(grupos){
   const ult = {}; pedidos.forEach(p => { if(!ult[p.unidad_id] || ult[p.unidad_id].ts < p.ts) ult[p.unidad_id] = p; });
-  return `<div class="leyenda"><span><i></i>Sin solicitud</span><span><i class="Enviada"></i>Enviada</span><span><i class="Confirmada"></i>Confirmada</span><span><i class="Entregada"></i>Entregada</span><span><i class="Rechazada"></i>Rechazada</span></div><div class="mapa">` +
+  return `<div class="leyenda"><span><i></i>Sin solicitud</span><span><i class="Enviada"></i>Enviada</span><span><i class="Confirmada"></i>Por aprobación final</span><span><i class="Aprobada"></i>Aprobada</span><span><i class="Entregada"></i>Entregada</span><span><i class="Rechazada"></i>Rechazada</span></div><div class="mapa">` +
     grupos.map(g => { const us = UL.filter(u => u.grupo_id === g.id && u.activa); if(!us.length) return '';
       const pend = us.filter(u => ult[u.id]?.estado === 'Enviada').length, suc = g.tipo === 'Sucursales' || g.tipo === 'Sin asignar';
       return `<div class="grupo-mapa" data-g="${esc(g.id)}"><header><strong>${esc(g.nombre)} · ${esc(g.aprobador)}</strong><span class="sub" style="margin:0">${us.length} ${suc ? 'sucursales' : 'áreas'}${pend ? ` · <span class="chip Enviada">${pend} por confirmar</span>` : ''}</span></header>
@@ -491,7 +496,7 @@ function mapa(grupos){
     }).join('') + '</div>';
 }
 const selGrupo = (id, val, todos = 'Todos los grupos') => `<select id="${id}" style="width:auto"><option value="TODOS">${todos}</option>${GL.map(g => `<option value="${g.id}" ${val === g.id ? 'selected' : ''}>${esc(g.nombre)}</option>`).join('')}</select>`;
-const selEstado = (id, val) => `<select id="${id}" style="width:auto">${['TODOS','Enviada','Confirmada','Entregada','Rechazada'].map(e => `<option value="${e}" ${val === e ? 'selected' : ''}>${e === 'TODOS' ? 'Todos los estados' : e}</option>`).join('')}</select>`;
+const selEstado = (id, val) => `<select id="${id}" style="width:auto">${['TODOS','Enviada','Confirmada','Aprobada','Entregada','Rechazada'].map(e => `<option value="${e}" ${val === e ? 'selected' : ''}>${e === 'TODOS' ? 'Todos los estados' : EST_TXT[e] || e}</option>`).join('')}</select>`;
 
 // ---------- vistas: aprobador ----------
 function vBandeja(){
@@ -525,7 +530,7 @@ function vGrupo(){
 
 // ---------- vistas: logística ----------
 // ---------- aperturas en curso ----------
-const aperturasEnCurso = () => pedidos.filter(p => p.tipo === 'Apertura' && p.origen !== 'historico' && (p.estado === 'Enviada' || p.estado === 'Confirmada'))
+const aperturasEnCurso = () => pedidos.filter(p => p.tipo === 'Apertura' && p.origen !== 'historico' && (p.estado === 'Enviada' || p.estado === 'Confirmada' || p.estado === 'Aprobada'))
   .sort((a,b) => ((a.estado === 'Entregada') - (b.estado === 'Entregada')) || String(a.fecha_apertura || '9999').localeCompare(String(b.fecha_apertura || '9999')));
 const riesgoApertura = p => { const n = p.fecha_apertura ? diasA(p.fecha_apertura) : null;
   if(p.estado === 'Enviada' && horas(Date.now() - p.ts) > 24) return 'Lleva más de 24 h sin confirmar';
@@ -534,8 +539,8 @@ const riesgoApertura = p => { const n = p.fecha_apertura ? diasA(p.fecha_apertur
 function vAperturas(){
   const l = aperturasEnCurso(); if(!l.length) return '';
   return `<section class="panel aperturas"><div class="panel-head"><div><h2>Aperturas en curso</h2><p class="sub">Salas nuevas: confirmar en 24 h y entregar al menos 2 días antes de la inauguración.</p></div></div><div class="ap-grid">` +
-    l.map(p => { const u = U[p.unidad_id] || {nombre:p.unidad_id}, r = riesgoApertura(p), paso = {Enviada:0, Confirmada:1, Entregada:2}[p.estado];
-      const btn = p.estado === 'Enviada' && puedeAprobar(p) ? `<button class="btn btn-sm btn-primary" data-conf-ap="${esc(p.id)}">Confirmar apertura</button>` : p.estado === 'Confirmada' && rol.admin ? `<button class="btn btn-sm btn-ok" data-ver="${esc(p.id)}">Entregar</button>` : '';
+    l.map(p => { const u = U[p.unidad_id] || {nombre:p.unidad_id}, r = riesgoApertura(p), paso = {Enviada:0, Confirmada:1, Aprobada:1, Entregada:2}[p.estado];
+      const btn = p.estado === 'Enviada' && puedeAprobar(p) ? `<button class="btn btn-sm btn-primary" data-conf-ap="${esc(p.id)}">Confirmar apertura</button>` : p.estado === 'Aprobada' && rol.admin ? `<button class="btn btn-sm btn-ok" data-ver="${esc(p.id)}">Entregar</button>` : '';
       return `<div class="ap-card ${r ? 'riesgo' : ''} ${p.estado === 'Entregada' ? 'lista' : ''}"><div class="ap-top"><b>${esc(u.nombre)}</b>${chip(p.estado)}</div>
         <div class="ap-abre">${esc(txtAbre(p.fecha_apertura))}</div>
         <ol class="ap-pasos">${['Enviada','Confirmada','Entregada'].map((n,i) => `<li class="${i <= paso ? 'ok' : ''}">${n}</li>`).join('')}</ol>
@@ -554,7 +559,7 @@ async function confirmarApertura(id, btn){
 function vTablero(){
   const tot = {Enviada:0, Confirmada:0, Entregada:0, Rechazada:0};
   const filas = GL.map(g => {
-    const l = pedidos.filter(p => grupoDe(p) === g.id), c = e => l.filter(p => p.estado === e).length;
+    const l = pedidos.filter(p => grupoDe(p) === g.id), c = e => l.filter(p => p.estado === e || (e === 'Confirmada' && p.estado === 'Aprobada')).length;
     Object.keys(tot).forEach(e => tot[e] += c(e));
     const pend = l.filter(p => p.estado === 'Enviada'); const vieja = pend.length ? Math.max(...pend.map(p => horas(Date.now() - p.ts))) : 0;
     const n = v => v ? v : '<span class="sub">0</span>';
@@ -570,10 +575,10 @@ function vTablero(){
 }
 let fEnt = 'TODOS';
 function vEntregar(){
-  const l = pedidos.filter(p => p.estado === 'Confirmada' && (fEnt === 'TODOS' || (U[p.unidad_id]?.muelle || 'SIN') === fEnt)).sort((a,b) => ordenApert(a,b) || a.confirmado_ts - b.confirmado_ts);
+  const l = pedidos.filter(p => p.estado === 'Aprobada' && (fEnt === 'TODOS' || (U[p.unidad_id]?.muelle || 'SIN') === fEnt)).sort((a,b) => ordenApert(a,b) || a.confirmado_ts - b.confirmado_ts);
   const muelles = [...new Set(UL.map(u => u.muelle || 'SIN'))].sort();
   const n = l.filter(p => sel.has(p.id)).length;
-  return bloqueAvisos(a => a.tab === 'entregar') + `<section class="panel"><div class="panel-head"><div><h2>Confirmadas por entregar</h2><p class="sub">${rol.admin ? 'La confirmación más antigua primero. Filtre por muelle, marque las que salieron y regístrelas juntas.' : 'Solicitudes confirmadas que Logística CEDIS todavía no entregó, la más antigua primero. Solo consulta.'}</p></div>
+  return bloqueAvisos(a => a.tab === 'entregar') + `<section class="panel"><div class="panel-head"><div><h2>Aprobadas por entregar</h2><p class="sub">${rol.admin ? 'La confirmación más antigua primero. Filtre por muelle, marque las que salieron y regístrelas juntas.' : 'Solicitudes confirmadas que Logística CEDIS todavía no entregó, la más antigua primero. Solo consulta.'}</p></div>
     <div class="row">${rol.admin ? '' : '<!--'}<button class="btn btn-sm" id="btnPlantTrasp" title="Excel con las solicitudes por entregar, para completar el N° de traspaso">⬇ Plantilla de traspasos</button><button class="btn btn-sm btn-primary" id="btnSubirTrasp">⬆ Subir traspasos (Excel)</button><input type="file" id="fileTrasp" accept=".xlsx,.xls,.csv" hidden>${rol.admin ? '' : '-->'}
     <select id="fEnt" style="width:auto"><option value="TODOS">Todos los muelles</option>${muelles.map(m => `<option value="${m}" ${fEnt === m ? 'selected' : ''}>${m === 'SIN' ? 'Sin muelle' : m}</option>`).join('')}</select></div></div>
     ${rol.admin ? '' : '<!--'}<div class="acciones ${n ? 'on' : ''}"><span><strong>${n}</strong> seleccionadas</span>${n ? '<button class="btn btn-sm" id="btnLimpiarSel">Quitar selección</button>' : ''}<input id="recVarios" maxlength="100" placeholder="Recibido por (opcional)" style="max-width:220px"><button class="btn btn-ok" id="btnEntVarios" ${n ? '' : 'disabled'}>Marcar entregadas</button></div>${rol.admin ? '' : '-->'}
@@ -583,7 +588,7 @@ let fPrep = 'TODOS', fPrepCiclo = null, fPrepAlc = 'todo';
 // Reporte y preparación: solicitudes Confirmadas (no entregadas) cuya confirmación cae en el mes elegido
 const mesHoy = () => { const d = hoy(); return d.getFullYear() * 100 + d.getMonth() + 1; };
 const mesConf = p => { if(!p.confirmado_ts) return 0; const d = new Date(p.confirmado_ts); return d.getFullYear() * 100 + d.getMonth() + 1; };
-const enMesPrep = p => p.estado === 'Confirmada' && mesConf(p) === (fPrepCiclo || mesHoy());
+const enMesPrep = p => p.estado === 'Aprobada' && mesConf(p) === (fPrepCiclo || mesHoy());
 const MUELLES = ['DESP-01','DESP-02','DESP-03','DESP-04','DESP-05','SIN'];
 function datosPrep(){
   fPrepCiclo ||= mesHoy();
@@ -600,7 +605,7 @@ function vPreparacion(){
   return `<section class="panel reporte"><div class="panel-head"><div><h2>Reporte de dotación</h2><p class="sub">Todas las solicitudes <strong>confirmadas en el mes</strong> que todavía no se entregaron. Excel con el formato de "Dotación Sucursales", listo para imprimir en carta.</p></div></div>
     <div class="row"><label class="f">Mes de confirmación<select id="fPrepCiclo">${[0,1,2,3,4,5].map(k => cicloMenos(mesHoy(), k)).map(cc => `<option value="${cc}" ${cc === c ? 'selected' : ''}>${esc(nombreCiclo(cc))}</option>`).join('')}</select></label>
       <label class="f">Incluir<select id="fPrepAlc"><option value="sucursales" ${fPrepAlc === 'sucursales' ? 'selected' : ''}>Solo sucursales</option><option value="todo" ${fPrepAlc === 'todo' ? 'selected' : ''}>Sucursales, oficina central y CEDIS</option></select></label></div>
-    <div class="resumen-rep"><span class="chip Confirmada">${plural(aprob.length, 'confirmada por entregar', 'confirmadas por entregar')} · ${plural(salas, 'sala o área', 'salas y áreas')}</span>${pend.length ? `<span class="chip Enviada">${plural(pend.length, 'por confirmar', 'por confirmar')}</span>` : '<span class="chip Entregada">todo confirmado</span>'}${falt ? `<span class="chip alerta">${plural(falt, 'sin solicitud', 'sin solicitud')}</span>` : ''}</div>
+    <div class="resumen-rep"><span class="chip Aprobada">${plural(aprob.length, 'aprobada por entregar', 'aprobadas por entregar')} · ${plural(salas, 'sala o área', 'salas y áreas')}</span>${pend.length ? `<span class="chip Enviada">${plural(pend.length, 'por confirmar', 'por confirmar')}</span>` : '<span class="chip Entregada">todo confirmado</span>'}${falt ? `<span class="chip alerta">${plural(falt, 'sin solicitud', 'sin solicitud')}</span>` : ''}</div>
     <div class="row right"><button class="btn btn-primary btn-lg" id="btnReporte" ${aprob.length ? '' : 'disabled'}>Generar reporte de dotación (Excel)</button></div></section>
   <section class="panel"><div class="panel-head"><div><h2>Preparación por muelle</h2><p class="sub">Confirmado en ${esc(nombreCiclo(c).toLowerCase())} y aún no entregado: ${plural(l.length, 'solicitud', 'solicitudes')}.</p></div>
     <div class="row">${selGrupo('fPrep', fPrep)}</div></div>
@@ -920,10 +925,12 @@ function abrirDet(id){ det = pedidos.find(p => p.id === id) || anuladas.find(p =
 function pintaDet(){
   const p = det, u = U[p.unidad_id] || {nombre:p.unidad_id, tipo:''}, edit = p.estado === 'Enviada' && puedeAprobar(p), rech = p.estado === 'Rechazada';
   $('detTitulo').textContent = `${p.codigo} · ${u.nombre}`;
-  const nivel = {Enviada:0, Confirmada:1, Rechazada:1, Entregada:2}[p.estado];
-  const paso = (n, ts, i) => { const cls = rech && i === 1 ? 'bad' : rech && i === 2 ? '' : i <= nivel ? 'done' : i === nivel + 1 ? 'now' : '';
-    return `<li class="${cls}"><b>${rech && i === 1 ? 'Rechazada' : n}</b>${(cls === 'done' || cls === 'bad') && ts ? fFH(ts) : cls === 'now' ? 'En espera' : 'Pendiente'}</li>`; };
-  let h = `<ol class="steps">${paso('Enviada', p.ts, 0)}${paso('Confirmada', p.confirmado_ts, 1)}${paso('Entregada', p.entregado_ts, 2)}</ol>
+  const fin = p.aprobado_ts || p.estado === 'Confirmada' || (p.estado === 'Rechazada' && p.aprobado_por) || (p.estado === 'Entregada' && p.aprobado_ts);
+  const nivel = {Enviada:0, Confirmada:1, Aprobada:2, Rechazada:fin && p.aprobado_por ? 2 : 1, Entregada:3}[p.estado];
+  const iR = p.aprobado_por && rech ? 2 : 1;
+  const paso = (n, ts, i) => { const cls = rech && i === iR ? 'bad' : rech && i > iR ? '' : i <= nivel ? 'done' : i === nivel + 1 ? 'now' : '';
+    return `<li class="${cls}"><b>${rech && i === iR ? 'Rechazada' : n}</b>${(cls === 'done' || cls === 'bad') && ts ? fFH(ts) : cls === 'now' ? 'En espera' : 'Pendiente'}</li>`; };
+  let h = `<ol class="steps">${paso('Enviada', p.ts, 0)}${paso('Confirmada', p.confirmado_ts, 1)}${paso('Aprobación final', p.aprobado_ts, 2)}${paso('Entregada', p.entregado_ts, 3)}</ol>
     <div class="meta"><div><strong>${esc(u.tipo || 'Unidad')}:</strong> ${esc(u.nombre)}</div><div><strong>Solicitó:</strong> ${esc(titulo(p.solicitante))}${p.enviado_por ? ` <span class="sub">(${esc(p.enviado_por)})</span>` : ''}</div><div><strong>Aprueba:</strong> ${esc(G[u.grupo_id]?.aprobador || '')}</div>
     ${u.muelle ? `<div><strong>Muelle:</strong> ${esc(u.muelle)}</div>` : ''}${p.nro_traspaso ? `<div><strong>N° de traspaso:</strong> <span class="mono">${esc(p.nro_traspaso)}</span></div>` : ''}<div><strong>Estado:</strong> ${chip(p.estado)}${p.tipo === 'Apertura' ? ' <span class="chip apertura">Apertura</span>' : ''}</div>${p.tipo === 'Apertura' ? `<div><strong>Inauguración:</strong> ${p.fecha_apertura ? esc(fDia(p.fecha_apertura)) + ' · ' + esc(txtAbre(p.fecha_apertura)) : 'sin fecha'}</div>` : ''}${p.recibido_por ? `<div><strong>Recibió:</strong> ${esc(p.recibido_por)}</div>` : ''}</div>`;
   if(rech) h += `<div class="notice bad"><strong>Motivo del rechazo:</strong> ${esc(p.motivo_rechazo)}</div>`;
@@ -939,7 +946,7 @@ function pintaDet(){
     <label class="f">Nota para la sucursal (opcional)<input id="dNota" maxlength="500" placeholder="Ej: Se ajustó al consumo promedio mensual"></label>
     <div class="row right"><input id="dMotivo" maxlength="500" placeholder="Motivo si la rechaza" style="max-width:300px"><button class="btn btn-danger" id="dRech">Rechazar</button><button class="btn btn-primary" id="dConf">Confirmar solicitud</button></div>`;
   } else {
-    const entEdit = rol.admin && p.estado === 'Confirmada';
+    const entEdit = rol.admin && p.estado === 'Aprobada';
     if(entEdit){
       h += `<div class="notice">Revise lo que va a entregar. Si no tiene stock de algún insumo, baje la cantidad (puede ser 0) e indique el motivo.</div>
       <div class="tbl-wrap"><table><thead><tr><th>Código</th><th>Insumo</th><th class="num">U.M.</th><th class="num">Confirmado</th><th class="num">A entregar</th></tr></thead><tbody>` +
@@ -957,9 +964,10 @@ function pintaDet(){
       const dif = p.items_entregados.filter(e => { const c = p.items.find(x => x.codigo === e.codigo); return c && +c.cantidad !== +e.cantidad; });
       h += `<div class="notice bad"><strong>Entrega parcial.</strong> ${esc(p.nota_entrega || '')}<ul style="margin:6px 0 0;padding-left:18px">${dif.map(e => `<li>${esc(e.descripcion)}: confirmado ${esc(p.items.find(x => x.codigo === e.codigo).cantidad)}, entregado <strong>${esc(e.cantidad)}</strong></li>`).join('')}</ul></div>`;
     }
-    const reab = puedeAprobar(p) && (p.estado === 'Confirmada' || rech);
-    if(rol.admin && p.estado === 'Confirmada') h += `<div class="row right">${reab ? '<button class="btn" id="dReabrir">Volver a revisar</button>' : ''}${usaTraspaso(p) ? `<input id="dTrasp" maxlength="40" placeholder="N° de traspaso *" value="${esc(p.nro_traspaso || '')}" style="max-width:180px" inputmode="numeric">` : ''}<input id="dRecibe" maxlength="100" placeholder="Recibido por (opcional)" style="max-width:220px"><button class="btn btn-ok" id="dEnt">Marcar entregada</button></div>`;
-    else if(reab) h += `<div class="row right"><span class="sub" style="margin:0">¿Se confirmó o rechazó por error?</span><button class="btn" id="dReabrir">Volver a revisar</button></div>`;
+    const reab = (puedeAprobar(p) && (p.estado === 'Confirmada' || p.estado === 'Aprobada' || rech)) || (esFinal() && p.estado === 'Confirmada');
+    if(esFinal() && p.estado === 'Confirmada') h += `<div class="notice fin"><strong>Aprobación final.</strong> La confirmó ${esc(G[U[p.unidad_id]?.grupo_id]?.aprobador || p.confirmado_por || '')}. Al aprobarla pasa a Logística para preparar y entregar.</div><div class="row right"><input id="dMotivoF" maxlength="500" placeholder="Motivo si la rechaza" style="max-width:280px"><button class="btn btn-danger" id="dRechF">Rechazar</button><button class="btn btn-primary" id="dAprobF">Aprobar</button></div>`;
+    if(rol.admin && p.estado === 'Aprobada') h += `<div class="row right">${reab ? '<button class="btn" id="dReabrir">Volver a revisar</button>' : ''}${usaTraspaso(p) ? `<input id="dTrasp" maxlength="40" placeholder="N° de traspaso *" value="${esc(p.nro_traspaso || '')}" style="max-width:180px" inputmode="numeric">` : ''}<input id="dRecibe" maxlength="100" placeholder="Recibido por (opcional)" style="max-width:220px"><button class="btn btn-ok" id="dEnt">Marcar entregada</button></div>`;
+    else if(reab && !(esFinal() && p.estado === 'Confirmada')) h += `<div class="row right"><span class="sub" style="margin:0">¿Se confirmó o rechazó por error?</span><button class="btn" id="dReabrir">Volver a revisar</button></div>`;
   }
   if(verPrecios()){ const vc = valorPedido(p, false), ve = p.items_entregados ? valorPedido(p, true) : null;
     h += `<div class="valor-det"><span>${p.estado === 'Enviada' ? 'Valor de lo pedido' : 'Valor confirmado'}: <strong>${fBs(vc.total)}</strong></span>${ve ? `<span>Valor entregado: <strong>${fBs(ve.total)}</strong> <span class="chip alerta">−${fBs(vc.total - ve.total)}</span></span>` : ''}${vc.sin ? `<span class="sub" style="margin:0">${plural(vc.sin, 'insumo sin precio cargado', 'insumos sin precio cargado')}</span>` : ''}${p.precios ? '<span class="sub" style="margin:0">Precios al momento de confirmar</span>' : ''}</div>`; }
@@ -974,7 +982,7 @@ $('detBody').addEventListener('click', async e => {
   if(t.dataset.dd != null){ detItems.splice(+t.dataset.dd, 1); pintaDet(); return; }
   const acciones = {
     dConf: async () => { if(!detItems.length){ toast('No quedan líneas. Rechace la solicitud si no corresponde.'); return null; }
-      return [sb.rpc('confirmar_pedido', {p_id:det.id, p_items:detItems, p_nota:$('dNota').value}), `${det.codigo} confirmada. Ya está en la lista de logística.`]; },
+      return [sb.rpc('confirmar_pedido', {p_id:det.id, p_items:detItems, p_nota:$('dNota').value}), `${det.codigo} confirmada.${requiereFinal(det) ? ' Pasa a aprobación final de Finanzas.' : ' Ya está en la lista de logística.'}`]; },
     dRech: async () => { const m = $('dMotivo').value.trim(); if(!m){ toast('Escriba el motivo del rechazo.'); $('dMotivo').focus(); return null; }
       return [sb.rpc('rechazar_pedido', {p_id:det.id, p_motivo:m}), `${det.codigo} rechazada. La sucursal verá el motivo.`]; },
     dEnt: async () => { const dif = det.items.some((c,k) => +detEnt[k] !== +c.cantidad), nota = ($('dNotaEnt')?.value || '').trim(), tr = ($('dTrasp')?.value || '').trim();
@@ -983,6 +991,9 @@ $('detBody').addEventListener('click', async e => {
       if(dif && !nota){ toast('Escriba el motivo de la diferencia.'); $('dNotaEnt').focus(); return null; }
       if(dif && !await confirmar(`¿Registrar ${det.codigo} como entregada con ${plural(det.items.filter((c,k) => +detEnt[k] !== +c.cantidad).length, 'insumo', 'insumos')} en menor cantidad? La sucursal verá lo confirmado, lo entregado y el motivo.`, {titulo:'Entrega parcial', si:'Sí, registrar', tono:'btn-ok'})) return null;
       return [sb.rpc('entregar_ajustado', {p_id:det.id, p_recibido:$('dRecibe').value, p_items:dif ? det.items.map((c,k) => ({codigo:c.codigo, cantidad:detEnt[k]})) : null, p_nota:dif ? nota : null}), dif ? `${det.codigo} entregada parcialmente.` : `${det.codigo} entregada.`]; },
+    dAprobF: async () => [sb.rpc('aprobar_final', {p_ids:[det.id]}), `${det.codigo} aprobada. Ya está en la lista de logística.`],
+    dRechF: async () => { const m = $('dMotivoF').value.trim(); if(!m){ toast('Escriba el motivo del rechazo.'); $('dMotivoF').focus(); return null; }
+      return [sb.rpc('rechazar_pedido', {p_id:det.id, p_motivo:m}), `${det.codigo} rechazada. La sucursal verá el motivo.`]; },
     dReabrir: async () => (await confirmar(`¿Volver ${det.codigo} a "Enviada" para revisarla de nuevo?`)) ? [sb.rpc('reabrir_pedido', {p_id:det.id}), `${det.codigo} volvió a revisión.`] : null,
   };
   if(!acciones[t.id]) return;
@@ -996,7 +1007,7 @@ $('detBody').addEventListener('click', async e => {
 // ---------- sesión ----------
 async function evaluarSesion(s){
   sesion = s; rol = {admin:false, grupos:[]};
-  if(s){ const {data} = await sb.rpc('mi_rol'); if(data) rol = {admin:!!data.admin, consulta:!!data.consulta, grupos:data.grupos || [], unidad:data.unidad || null}; }
+  if(s){ const {data} = await sb.rpc('mi_rol'); if(data) rol = {admin:!!data.admin, final:!!data.final, consulta:!!data.consulta, grupos:data.grupos || [], unidad:data.unidad || null}; }
   $('btnLogin').textContent = s ? 'Salir' : 'Ingresar';
   $('roleChip').textContent = rol.admin ? 'Logística CEDIS' : esConsulta() ? 'Consulta' + (salaUsuario() ? ' · ' + U[salaUsuario()].nombre : '') : esJefatura() ? 'Jefatura · ' + rol.grupos.map(g => G[g]?.aprobador).join(', ') : rol.unidad && U[rol.unidad] && !rol.grupos.length ? U[rol.unidad].nombre : rol.grupos.length ? 'Aprobador · ' + rol.grupos.map(g => G[g]?.aprobador).join(', ') : s ? 'Sin grupo asignado' : EXIGIR ? 'Sin ingresar' : 'Sucursal';
   $('roleChip').classList.toggle('role', rol.admin || !!rol.consulta || rol.grupos.length > 0);
@@ -1095,7 +1106,7 @@ async function confirmarVarios(btn){
 }
 // ---------- carga masiva de N° de traspaso desde Excel ----------
 function plantillaTraspasos(){
-  const l = pedidos.filter(p => p.estado === 'Confirmada' && usaTraspaso(p)).sort((a,b) => ordenApert(a,b) || ordU(U[a.unidad_id] || {}) - ordU(U[b.unidad_id] || {}));
+  const l = pedidos.filter(p => p.estado === 'Aprobada' && usaTraspaso(p)).sort((a,b) => ordenApert(a,b) || ordU(U[a.unidad_id] || {}) - ordU(U[b.unidad_id] || {}));
   if(!l.length){ toast('No hay solicitudes por entregar.'); return; }
   const W = XL.libro(), h = W.hoja('Traspasos'), cab = {b:true, sz:10, color:'FFFFFFFF', fill:'FF1F3864', h:'center', v:'center', wrap:true, bt:'thin', bb:'thin', bl:'thin', br:'thin'};
   ['N° solicitud','Cód. sala','Sala / área','Muelle','Ítems','N° traspaso'].forEach((t, c) => h.set(0, c, t, cab));
@@ -1152,8 +1163,8 @@ function notaTraspaso(tr, cmp){
 }
 function emparejar(f, col){
   const tr = String(f[col.tr] ?? '').trim(); if(!tr) return {estado:'vacio'};
-  const pend = pedidos.filter(p => p.estado === 'Confirmada' && usaTraspaso(p));
-  if(col.so >= 0){ const v = String(f[col.so] ?? '').trim().toUpperCase().replace(/^P-?/, ''); if(v){ const p = pedidos.find(x => x.codigo.replace(/^P-?/, '') === v.padStart(4, '0') || x.codigo.replace(/^P-?/, '') === v); if(p) return {estado: p.estado === 'Confirmada' || p.estado === 'Entregada' ? 'ok' : 'noconf', p, tr}; } }
+  const pend = pedidos.filter(p => p.estado === 'Aprobada' && usaTraspaso(p));
+  if(col.so >= 0){ const v = String(f[col.so] ?? '').trim().toUpperCase().replace(/^P-?/, ''); if(v){ const p = pedidos.find(x => x.codigo.replace(/^P-?/, '') === v.padStart(4, '0') || x.codigo.replace(/^P-?/, '') === v); if(p) return {estado: p.estado === 'Aprobada' || p.estado === 'Entregada' ? 'ok' : 'noconf', p, tr}; } }
   if(col.sa >= 0){ const raw = String(f[col.sa] ?? '').trim(); if(raw){ const c = normCod(raw), q = normTxt(raw);
       let us = UL.filter(u => u.codigo_sala && normCod(u.codigo_sala) === c);
       if(!us.length) us = UL.filter(u => normTxt(u.nombre) === q);
@@ -1211,7 +1222,7 @@ async function aplicarTraspasos(btn){
   for(const x of ok){ const {error} = await sb.rpc('guardar_traspaso', {p_id:x.m.p.id, p_nro:x.m.tr}); if(error) fallos.push(x.m.p.codigo); else { n++; x.m.p.nro_traspaso = x.m.tr; } }
   let ent = 0;
   let parc = 0;
-  if($('trEntregar').checked){ const lista = ok.filter(x => x.m.p.estado === 'Confirmada' && !fallos.includes(x.m.p.codigo));
+  if($('trEntregar').checked){ const lista = ok.filter(x => x.m.p.estado === 'Aprobada' && !fallos.includes(x.m.p.codigo));
     const conDif = lista.filter(x => x.cmp && x.cmp.menos.length), ids = lista.filter(x => !conDif.includes(x)).map(x => x.m.p.id);
     if(ids.length){ const {data, error} = await sb.rpc('entregar_varios', {p_ids:ids, p_recibido:''}); if(!error) ent = data ?? ids.length; else fallos.push(...lista.filter(x => ids.includes(x.m.p.id)).map(x => x.m.p.codigo)); }
     for(const x of conDif){ const p = x.m.p, env = {}; (x.cmp.menos).forEach(m => env[m.codigo] = m.env);
@@ -1232,7 +1243,7 @@ document.addEventListener('click', e => {
   if(e.target.id === 'trAplicar') aplicarTraspasos(e.target);
 });
 async function entregarVarios(btn){
-  const ids = [...sel].filter(id => pedidos.some(p => p.id === id && p.estado === 'Confirmada'));
+  const ids = [...sel].filter(id => pedidos.some(p => p.id === id && p.estado === 'Aprobada'));
   if(!ids.length){ toast('Marque al menos una solicitud.'); return; }
   const sinT = ids.map(id => pedidos.find(p => p.id === id)).filter(p => usaTraspaso(p) && !p.nro_traspaso);
   if(sinT.length){ toast(`Falta el número de traspaso en ${sinT.map(p => p.codigo).join(', ')}.`); const i = document.querySelector(`[data-trasp="${sinT[0].id}"]`); if(i) i.focus(); return; }
@@ -1325,7 +1336,7 @@ function botonCerrar(u){
 async function cerrarSala(uid, activar, btn){
   const u = U[uid]; if(!u) return;
   if(!activar){
-    const pend = pedidos.filter(p => p.unidad_id === uid && (p.estado === 'Enviada' || p.estado === 'Confirmada')).length;
+    const pend = pedidos.filter(p => p.unidad_id === uid && (p.estado === 'Enviada' || p.estado === 'Confirmada' || p.estado === 'Aprobada')).length;
     if(!await confirmar(`¿Eliminar ${u.nombre}? Dejará de aparecer en la lista de sucursales, el mapa, las alertas, la cobertura y los reportes nuevos. Sus solicitudes anteriores se conservan en el historial.${pend ? ` Tiene ${plural(pend, 'solicitud pendiente', 'solicitudes pendientes')}: se mantendrán para que pueda terminarlas.` : ''} Puede reactivarla más adelante.`)) return;
   }
   btn.disabled = true;
@@ -1462,7 +1473,7 @@ const provDe = c => (M[c]?.proveedor || '').trim() || 'SIN PROVEEDOR';
 const BANDAS = [['#dbe8f6','#c9dcf0','FFDBE8F6','FFC9DCF0'],['#d9f0c8','#c6e6ad','FFD9F0C8','FFC6E6AD'],['#fde9c8','#f9dbab','FFFDE9C8','FFF9DBAB'],['#ece0f5','#dfcdee','FFECE0F5','FFDFCDEE'],['#d5f0ee','#bfe6e3','FFD5F0EE','FFBFE6E3'],['#f7dcdc','#f0c8c8','FFF7DCDC','FFF0C8C8']];
 function datosInventario(){
   const por = {}, salasC = {}, info = {};
-  pedidos.forEach(p => { const pend = p.estado === 'Enviada'; if(p.estado !== 'Confirmada' && !(pend && fInvPend)) return;
+  pedidos.forEach(p => { const pend = p.estado === 'Enviada'; if(p.estado !== 'Confirmada' && p.estado !== 'Aprobada' && !(pend && fInvPend)) return;
     const tipo = U[p.unidad_id]?.tipo || 'Sucursal', k = TIPOS_INV.some(t => t[0] === tipo) ? tipo : 'Sucursal';
     p.items.forEach(i => { const c = +i.cantidad || 0; if(!c) return; const x = por[i.codigo] ||= {conf:0, pend:0, tipos:{}}; if(pend) x.pend += c; else x.conf += c; x.tipos[k] = (x.tipos[k] || 0) + c; info[i.codigo] ||= i; (salasC[i.codigo] ||= new Set()).add(p.unidad_id); }); });
   const cods = new Set([...Object.keys(por), ...ML.filter(matActivo).map(m => m.codigo)]);
@@ -1612,3 +1623,22 @@ document.addEventListener('mouseover', e => { const el = e.target.closest?.('[da
   if(!el){ if(t) t.hidden = true; return; } if(!t){ t = document.createElement('div'); t.id = 'tip'; document.body.append(t); } t.textContent = el.dataset.tip; t.hidden = false; });
 document.addEventListener('mousemove', e => { const t = document.getElementById('tip'); if(t && !t.hidden){ t.style.left = Math.min(innerWidth - t.offsetWidth - 8, e.clientX + 12) + 'px'; t.style.top = (e.clientY + 14) + 'px'; } });
 document.addEventListener('click', e => { const el = e.target.closest?.('[data-tip]'); if(!el) return; let t = document.getElementById('tip'); if(!t){ t = document.createElement('div'); t.id = 'tip'; document.body.append(t); } t.textContent = el.dataset.tip; t.hidden = false; const r = el.getBoundingClientRect(); t.style.left = Math.max(8, Math.min(innerWidth - t.offsetWidth - 8, r.left)) + 'px'; t.style.top = (r.bottom + 6) + 'px'; setTimeout(() => t.hidden = true, 2500); });
+
+// ---------- aprobación final (Finanzas: Helen; respaldo: Logística) ----------
+const requiereFinal = p => p.tipo !== 'Apertura' && !['CEDIS','OFC'].includes(U[p.unidad_id]?.grupo_id);
+function vFinal(){
+  const l = pedidos.filter(p => p.estado === 'Confirmada').sort((a, b) => a.confirmado_ts - b.confirmado_ts), n = l.filter(p => sel.has(p.id)).length;
+  const val = verPrecios() ? l.reduce((a, p) => a + valorPedido(p, false).total, 0) : 0, valSel = verPrecios() ? l.filter(p => sel.has(p.id)).reduce((a, p) => a + valorPedido(p, false).total, 0) : 0;
+  return `<section class="panel"><div class="panel-head"><div><h2>Aprobación final</h2><p class="sub">Solicitudes de sucursales ya confirmadas por su supervisora. Al aprobarlas pasan a Logística para preparar y entregar. Las del CEDIS, Oficina central y las aperturas no pasan por aquí.${verPrecios() && l.length ? ` Valor total: <strong>${fBs(val)}</strong>.` : ''}</p></div></div>
+    <div class="acciones ${n ? 'on' : ''}"><span><strong>${n}</strong> seleccionadas${n && verPrecios() ? ` · ${fBs(valSel)}` : ''}</span>${n ? '<button class="btn btn-sm" id="btnLimpiarSel">Quitar selección</button>' : ''}<button class="btn btn-primary" id="btnAprobFinal" ${n ? '' : 'disabled'}>Aprobar seleccionadas</button></div>
+    ${tabla(l, ['codigo','unidad','aprob','enviada','items','estado'], 'No hay solicitudes esperando la aprobación final. 🎉', true)}</section>`;
+}
+async function aprobarFinalVarios(btn){
+  const ids = [...sel].filter(id => pedidos.some(p => p.id === id && p.estado === 'Confirmada'));
+  if(!ids.length){ toast('Marque al menos una solicitud.'); return; }
+  if(!await confirmar(`¿Dar la aprobación final a ${plural(ids.length, 'solicitud', 'solicitudes')}? Pasarán a Logística para preparar y entregar. Para rechazar o revisar una, ábrala.`)) return;
+  btn.disabled = true; const {data, error} = await sb.rpc('aprobar_final', {p_ids:ids}); btn.disabled = false;
+  if(error){ toast(errMsg(error)); return; }
+  sel.clear(); toast(`${plural(data ?? ids.length, 'solicitud aprobada', 'solicitudes aprobadas')}.`); cargarPedidos();
+}
+document.addEventListener('click', e => { if(e.target.id === 'btnAprobFinal') aprobarFinalVarios(e.target); });
