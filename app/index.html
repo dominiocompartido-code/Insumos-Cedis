@@ -535,6 +535,18 @@ main{margin:0;max-width:1240px;width:100%}
   </form>
 </div></div>
 
+<div class="modal" id="mNuevoMat" hidden><div class="modal-card sm" style="max-width:520px">
+  <div class="modal-head"><h3>Solicitar material nuevo</h3><button class="x" data-close="mNuevoMat" aria-label="Cerrar">&times;</button></div>
+  <div class="grid" style="gap:10px">
+    <p class="sub" style="margin:0">Para insumos que no están en la lista. Logística lo revisa y, si lo aprueba, lo agrega para todas las salas. Para: <strong id="nmArea"></strong></p>
+    <label class="f">Material *<input id="nmNombre" maxlength="120" placeholder="Ej: ESCOBILLÓN INDUSTRIAL 60 CM" autocomplete="off"></label>
+    <div class="grid g3" style="grid-template-columns:1fr 1fr"><label class="f">Unidad<input id="nmUM" maxlength="10" placeholder="PZA, PQT, FCO…" list="dlUM"></label><label class="f">Cantidad *<input id="nmCant" type="number" min="1" value="1"></label></div>
+    <label class="f">¿Para qué lo necesita? *<input id="nmJust" maxlength="500" placeholder="Ej: para limpiar el depósito de la sala"></label>
+    <label class="f">Su nombre *<input id="nmSol" maxlength="100" placeholder="Ej: Ana Rojas"></label>
+    <div class="notice bad" id="nmMsg" hidden></div>
+    <div class="row right"><button type="button" class="btn" data-close="mNuevoMat">Cancelar</button><button type="button" class="btn btn-primary" id="nmEnviar">Enviar solicitud</button></div>
+  </div>
+</div></div>
 <div class="modal" id="mUsuario" hidden><div class="modal-card sm" style="max-width:520px">
   <div class="modal-head"><h3>Crear usuario</h3><button class="x" data-close="mUsuario" aria-label="Cerrar">&times;</button></div>
   <div class="grid" style="gap:10px">
@@ -1106,6 +1118,7 @@ function actualizarInsignia(c){
 function contadores(){
   const c = {};
   c.bandeja = pedidos.filter(p => p.estado === 'Enviada' && puedeAprobar(p)).length;
+  if(rol.admin) c.materiales = NUEVOS.filter(n => n.estado === 'Pendiente de revisión').length;
   if(esFinal()) c.final = pedidos.filter(p => p.estado === 'Confirmada').length;
   if(rol.admin){ c.entregar = pedidos.filter(p => p.estado === 'Aprobada').length; c.tablero = c.bandeja + (c.final || 0) + c.entregar; }
   else if(verTablero()){ c.entregar = pedidos.filter(p => p.estado === 'Aprobada').length; c.tablero = c.bandeja + (c.final || 0); }
@@ -1286,7 +1299,7 @@ function vSolicitar(){
   else if(puedeKit(u)) h += `<div class="notice info kit-box"><span>${salaNueva(u) ? '<strong>Sala nueva.</strong> Para la primera dotación use el kit de apertura: ' : 'Si es la apertura de esta sala, puede cargar el '}${plural(KIT.length, 'insumo estándar', 'insumos estándar')}.</span><button class="btn btn-sm btn-primary" id="btnKit">Cargar kit de apertura</button></div>`;
   if(pendiente && !esApertura) h += `<div class="notice">Esta ${u.tipo === 'Sucursal' ? 'sucursal' : 'área'} ya tiene la solicitud <strong>${esc(pendiente.codigo)}</strong> esperando confirmación (${hace(pendiente.ts)}). Puede enviar otra si hace falta.</div>`;
   h += `<div class="grid g3"><label class="f">Nombre de quien solicita *<input id="nSol" value="${esc(solicitanteNom)}" placeholder="Ej: Dra. Ana Rojas" maxlength="100"></label>${esApertura ? `<label class="f">Fecha de inauguración *<input type="date" id="nFechaAp" value="${esc(fechaAp)}" min="${hoyISO()}"></label>` : ''}</div>
-    <div class="row"><div class="search" style="flex:1;min-width:240px"><input id="nBuscar" placeholder="Agregar insumo: busque por código o nombre…" autocomplete="off"><div class="results" id="nRes" hidden></div></div>
+    <div class="row"><div class="search" style="flex:1;min-width:240px"><input id="nBuscar" placeholder="Agregar insumo: busque por código o nombre…" autocomplete="off"><div class="results" id="nRes" hidden></div></div><button type="button" class="btn btn-sm" data-pedir-nuevo="1" title="Si el insumo no está en la lista">+ Material nuevo</button>
     <button class="btn btn-danger" id="btnVaciar" ${borrador.length ? '' : 'disabled'}>Eliminar todo</button></div>
     ${(() => { const ant = ultimoPedido(u.id); return ant ? `<div class="anterior"><span>Último pedido: <strong>${esc(ant.codigo)}</strong> · ${fF(ant.ts)} · ${ant.items.length} insumos · ${chip(ant.estado)}</span><button class="btn btn-accent btn-sm" id="btnAnterior">Cargar pedido anterior</button></div>` : ''; })()}
     <div class="tbl-wrap"><table><thead><tr><th class="hide-sm">Código</th><th>Insumo</th><th class="num hide-sm">Unidad</th><th class="num">Cantidad</th><th class="num"><span class="hide-sm">Quitar</span></th></tr></thead><tbody id="nItems"></tbody></table></div>
@@ -1329,7 +1342,7 @@ function buscarInsumo(q){
   const box = $('nRes'); q = q.toLowerCase().trim(); if(!q){ box.hidden = true; return; }
   const f = ML.filter(a => matActivo(a) && (a.codigo.toLowerCase().includes(q) || a.descripcion.toLowerCase().includes(q))).slice(0, 30);
   box.innerHTML = f.length ? f.map(a => `<button type="button" data-add="${esc(a.codigo)}"><span><span class="mono" style="color:var(--brand);font-weight:600">${esc(a.codigo)}</span> ${esc(a.descripcion)}</span><span class="chip">${esc(a.unidad)}</span></button>`).join('')
-    : '<div class="none">Ese insumo no está en el maestro. Avise a logística CEDIS.</div>';
+    : '<div class="none">No está en la lista de materiales. <button type="button" class="btn btn-sm" data-pedir-nuevo="1">Solicitar material nuevo</button></div>';
   box.hidden = false;
 }
 document.addEventListener('click', async e => {
@@ -1989,6 +2002,7 @@ async function evaluarSesion(s){
   await cargarPrecios();
   await cargarInventario();
   if(rol.admin) await cargarAdmins();
+  await cargarNuevos();
   activarPush(true);
   if(s && !rol.admin && !rol.consulta && !rol.grupos.length && !rol.unidad) toast('Ingresó, pero su correo todavía no está vinculado a ninguna sala ni grupo. Pida a logística que lo registre.');
   if((rol.admin || rol.consulta || rol.grupos.length) && (tab === 'solicitar' || !tab)) tab = rol.admin || esConsulta() ? 'tablero' : 'bandeja';
@@ -2335,7 +2349,7 @@ document.addEventListener('click', e => { const th = e.target.closest?.('[data-o
 document.addEventListener('keydown', e => { if((e.key === 'Enter' || e.key === ' ') && e.target.dataset?.ordmat){ e.preventDefault(); e.target.click(); } });
 function vMateriales(){
   const cats = [...new Set(ML.map(m => m.categoria || 'General'))].sort((a,b) => a.localeCompare(b,'es'));
-  return `<section class="panel"><div class="panel-head"><div><h2>Lista de materiales</h2><p class="sub">Todos los insumos que se pueden pedir (${ML.filter(matActivo).length}). Antes de pedir un material nuevo, revise aquí si ya existe con otro nombre.${puedeCatalogo() ? ' Puede cambiar la categoría o eliminar un material que ya no se entrega; los eliminados quedan al final y se pueden reactivar.' : ''}</p></div>${puedeCatalogo() ? '<button class="btn btn-primary" id="btnNuevoMat">+ Nuevo material</button>' : ''}</div>
+  return vNuevos() + `<section class="panel"><div class="panel-head"><div><h2>Lista de materiales</h2><p class="sub">Todos los insumos que se pueden pedir (${ML.filter(matActivo).length}). Antes de pedir un material nuevo, revise aquí si ya existe con otro nombre.${puedeCatalogo() ? ' Puede cambiar la categoría o eliminar un material que ya no se entrega; los eliminados quedan al final y se pueden reactivar.' : ''}</p></div>${puedeCatalogo() ? '<button class="btn btn-primary" id="btnNuevoMat">+ Nuevo material</button>' : ''}</div>
     <div class="row"><input id="fMatQ" placeholder="Buscar por código o nombre…" value="${esc(fMatQ)}" style="flex:1;min-width:220px" autocomplete="off">
       <select id="fMatCat" style="width:auto"><option value="TODAS">Todas las categorías</option>${cats.map(c => `<option ${fMatCat === c ? 'selected' : ''}>${esc(c)}</option>`).join('')}</select></div>
     <p class="sub" id="matCuenta" style="margin:0"></p>
@@ -2392,6 +2406,7 @@ $('formMaterial').addEventListener('submit', async e => {
   if(error){ $('matMsg').textContent = error.message; $('matMsg').hidden = false; return; }
   const m = typeof data === 'string' ? JSON.parse(data) : data;
   if(!ML.some(x => x.codigo === m.codigo)) ML.push(m); ML.sort((x,y) => x.descripcion.localeCompare(y.descripcion,'es')); M[m.codigo] = m;
+  if(nuevoEnCurso){ await sb.from('nuevos').update({estado:'Creado', codigo_asignado:m.codigo, fecha_resolucion:new Date().toISOString()}).eq('id', nuevoEnCurso); nuevoEnCurso = null; await cargarNuevos(); }
   $('mMaterial').hidden = true; fMatQ = m.codigo; fMatCat = 'TODAS';
   toast(`Material creado: ${m.codigo} ${m.descripcion}. Ya se puede pedir.`); render();
 });
@@ -2620,6 +2635,48 @@ async function aprobarFinalVarios(btn){
 document.addEventListener('click', e => { if(e.target.id === 'btnAprobFinal') aprobarFinalVarios(e.target); });
 
 document.addEventListener('change', e => { if(e.target.id === 'selMiSala' || e.target.id === 'selMiSalaSeg'){ if(e.target.id === 'selMiSala' && borrador.length){ unidadSel = e.target.value; render(); return; } setUnidad(e.target.value); } });
+
+// ---------- solicitud de material nuevo (lo que no está en la lista) ----------
+let NUEVOS = [], nuevoEnCurso = null;
+async function cargarNuevos(){ if(!(rol.admin || puedeCatalogo())){ NUEVOS = []; return; } try{ const {data} = await sb.from('nuevos').select('*').order('ts', {ascending:false}).limit(200); NUEVOS = data || []; }catch(e){ NUEVOS = []; } }
+function abrirPedirNuevo(){
+  const u = salaUsuario() || unidadSel;
+  if(!u || !U[u]){ toast('Primero elija su sucursal o área.'); return; }
+  $('nmArea').textContent = U[u].nombre; $('nmNombre').value = ($('nBuscar')?.value || '').trim().toUpperCase(); $('nmUM').value = ''; $('nmCant').value = '1'; $('nmJust').value = '';
+  $('nmSol').value = solicitanteNom || ''; $('nmMsg').hidden = true; $('nmEnviar').disabled = false; $('mNuevoMat').hidden = false; $('nmNombre').focus();
+}
+async function enviarPedirNuevo(btn){
+  const u = salaUsuario() || unidadSel, nom = $('nmNombre').value.trim(), um = $('nmUM').value.trim(), cant = parseInt($('nmCant').value), just = $('nmJust').value.trim(), sol = titulo($('nmSol').value.trim());
+  const err = m => { $('nmMsg').textContent = m; $('nmMsg').hidden = false; };
+  if(nom.length < 3) return err('Escriba el nombre del material.');
+  if(!(cant > 0)) return err('Indique la cantidad.');
+  if(!sol) return err('Escriba su nombre.');
+  if(!just) return err('Explique para qué lo necesita.');
+  btn.disabled = true;
+  const {error} = await sb.from('nuevos').insert({nombre_material:nom.toUpperCase().slice(0, 120), descripcion:nom.slice(0, 200), unidad:um.toUpperCase().slice(0, 10) || null, cantidad:cant, area:U[u].nombre, solicitante:sol.slice(0, 100), justificacion:just.slice(0, 500), estado:'Pendiente de revisión'});
+  btn.disabled = false;
+  if(error) return err(errMsg(error));
+  $('mNuevoMat').hidden = true; if($('nBuscar')) $('nBuscar').value = ''; if($('nRes')) $('nRes').hidden = true;
+  toast('Solicitud de material nuevo enviada. Logística la revisará; cuando lo agregue a la lista ya podrá pedirlo.');
+}
+function vNuevos(){
+  if(!rol.admin) return '';
+  const pend = NUEVOS.filter(n => n.estado === 'Pendiente de revisión'), res = NUEVOS.filter(n => n.estado !== 'Pendiente de revisión').slice(0, 8);
+  if(!NUEVOS.length) return '';
+  const fd = t => { const d = new Date(t); return `${pad(d.getDate())}/${pad(d.getMonth() + 1)}`; };
+  return `<section class="panel${plegCls('nuevos')}"><div class="panel-head"><div><h2>Materiales nuevos solicitados ${plegBtn('nuevos')}</h2><p class="sub">${pend.length ? `<span class="chip alerta">${plural(pend.length, 'pendiente', 'pendientes')}</span> ` : ''}Pedidos de insumos que no están en la lista. Créelo con el botón y quedará disponible para todas las salas, o recházelo.</p></div></div>
+    <div class="tbl-wrap"><table><thead><tr><th>Fecha</th><th>Material pedido</th><th class="num">Cant.</th><th>Sala / área</th><th>Para qué</th><th class="num"></th></tr></thead><tbody>${pend.concat(res).map(n => `<tr class="${n.estado === 'Pendiente de revisión' ? '' : 'cerrada'}"><td class="sub">${fd(n.ts)}</td><td><strong>${esc(n.nombre_material)}</strong>${n.unidad ? ` <span class="chip">${esc(n.unidad)}</span>` : ''}</td><td class="num">${esc(n.cantidad ?? '')}</td><td>${esc(n.area || '')}<div class="sub" style="margin:0">${esc(n.solicitante || '')}</div></td><td class="sub">${esc(n.justificacion || '')}</td>
+      <td class="num" style="white-space:nowrap">${n.estado === 'Pendiente de revisión' ? `<button class="btn btn-sm btn-primary" data-nuevo-crear="${esc(n.id)}">Crear material</button> <button class="btn btn-sm btn-danger" data-nuevo-rech="${esc(n.id)}">Rechazar</button>` : n.estado === 'Creado' ? `<span class="chip Entregada">creado ${esc(n.codigo_asignado || '')}</span>` : '<span class="chip alerta">rechazado</span>'}</td></tr>`).join('')}</tbody></table></div></section>`;
+}
+document.addEventListener('click', async e => {
+  const t = e.target;
+  if(t.closest?.('[data-pedir-nuevo]')) abrirPedirNuevo();
+  if(t.id === 'nmEnviar') enviarPedirNuevo(t);
+  const nc = t.closest?.('[data-nuevo-crear]'); if(nc){ const n = NUEVOS.find(x => x.id === nc.dataset.nuevoCrear); if(!n) return; abrirNuevoMaterial(); nuevoEnCurso = n.id; $('matDesc').value = n.nombre_material || ''; $('matUM').value = n.unidad || ''; $('matDesc').dispatchEvent(new Event('input', {bubbles:true})); $('matCod').focus(); }
+  const nr = t.closest?.('[data-nuevo-rech]'); if(nr){ const n = NUEVOS.find(x => x.id === nr.dataset.nuevoRech); if(!n || !await confirmar(`¿Rechazar el pedido de "${n.nombre_material}" de ${n.area}?`, {titulo:'Rechazar material nuevo', si:'Sí, rechazar', tono:'btn-danger'})) return;
+    const {error} = await sb.from('nuevos').update({estado:'Rechazado', fecha_resolucion:new Date().toISOString()}).eq('id', n.id); if(error){ toast(errMsg(error)); return; } await cargarNuevos(); toast('Pedido de material rechazado.'); render(); }
+});
+document.addEventListener('click', e => { if(e.target.closest?.('[data-close="mMaterial"]')) nuevoEnCurso = null; });
 
 </script>
 </body>

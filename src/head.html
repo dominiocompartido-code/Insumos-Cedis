@@ -535,6 +535,18 @@ main{margin:0;max-width:1240px;width:100%}
   </form>
 </div></div>
 
+<div class="modal" id="mNuevoMat" hidden><div class="modal-card sm" style="max-width:520px">
+  <div class="modal-head"><h3>Solicitar material nuevo</h3><button class="x" data-close="mNuevoMat" aria-label="Cerrar">&times;</button></div>
+  <div class="grid" style="gap:10px">
+    <p class="sub" style="margin:0">Para insumos que no están en la lista. Logística lo revisa y, si lo aprueba, lo agrega para todas las salas. Para: <strong id="nmArea"></strong></p>
+    <label class="f">Material *<input id="nmNombre" maxlength="120" placeholder="Ej: ESCOBILLÓN INDUSTRIAL 60 CM" autocomplete="off"></label>
+    <div class="grid g3" style="grid-template-columns:1fr 1fr"><label class="f">Unidad<input id="nmUM" maxlength="10" placeholder="PZA, PQT, FCO…" list="dlUM"></label><label class="f">Cantidad *<input id="nmCant" type="number" min="1" value="1"></label></div>
+    <label class="f">¿Para qué lo necesita? *<input id="nmJust" maxlength="500" placeholder="Ej: para limpiar el depósito de la sala"></label>
+    <label class="f">Su nombre *<input id="nmSol" maxlength="100" placeholder="Ej: Ana Rojas"></label>
+    <div class="notice bad" id="nmMsg" hidden></div>
+    <div class="row right"><button type="button" class="btn" data-close="mNuevoMat">Cancelar</button><button type="button" class="btn btn-primary" id="nmEnviar">Enviar solicitud</button></div>
+  </div>
+</div></div>
 <div class="modal" id="mUsuario" hidden><div class="modal-card sm" style="max-width:520px">
   <div class="modal-head"><h3>Crear usuario</h3><button class="x" data-close="mUsuario" aria-label="Cerrar">&times;</button></div>
   <div class="grid" style="gap:10px">

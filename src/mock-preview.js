@@ -41,13 +41,14 @@
     const b = {
       select(){ return b; }, order(){ return b; }, limit(){ return b; },
       then(r, j){ return res(rows()).then(r, j); },
-      insert(o){ const p = {id:'n'+Date.now(), codigo:cod(Date.now()), ts:iso(Date.now()), estado:'Enviada', items_original:null, confirmado_ts:null, entregado_ts:null, nota:null, motivo_rechazo:null, recibido_por:null, ...o}; pedidos.unshift(p);
+      insert(o){ if(table !== 'pedidos'){ (D[table] ||= []).unshift({id:'x'+Date.now(), ts:iso(Date.now()), ...o}); return res(null); } const p = {id:'n'+Date.now(), codigo:cod(Date.now()), ts:iso(Date.now()), estado:'Enviada', items_original:null, confirmado_ts:null, entregado_ts:null, nota:null, motivo_rechazo:null, recibido_por:null, ...o}; pedidos.unshift(p);
         return {select(){ return {single(){ return res(p); }}; }}; },
       update(o){ return {eq(k, v){ const r = rows().find(x => x[k] === v); if(r) Object.assign(r, o); return res(null); }}; },
     };
     return b;
   }
   const rolActual = () => window.__ROL;
+  D.nuevos = [{id:'nv1', ts:new Date(Date.now() - 2*864e5).toISOString(), nombre_material:'ESCOBILLON INDUSTRIAL 60 CM', unidad:'PZA', cantidad:2, area:'SUC-43 VIEDMA', solicitante:'Ana Rojas', justificacion:'Para el depósito', estado:'Pendiente de revisión'}];
   D.cuentas = [{email:'dagarcia@farmaciaschavez.com.bo', creado:new Date().toISOString(), ultimo:new Date().toISOString(), confirmado:true}, {email:'logistica2gh@farmaciaschavez.com.bo', creado:new Date().toISOString(), ultimo:null, confirmado:true}];
   window.supabase = {createClient(){ const cli = {
     from: q,
