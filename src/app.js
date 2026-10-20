@@ -683,11 +683,15 @@ function rolDe(email){
 }
 function vCuentas(){
   const q = normTxt(fCtaQ).trim();
-  const l = (CUENTAS || []).map(c => ({...c, rol:rolDe(c.email)})).filter(c => !q || normTxt(c.email + ' ' + c.rol).includes(q)).sort((a, b) => (!a.rol) - (!b.rol) || a.email.localeCompare(b.email));
+  // correos que tienen rol en la app pero todavía no tienen cuenta de ingreso
+  const conCta = new Set((CUENTAS || []).map(c => c.email));
+  const registrados = [...new Set([...ADMINS.filter(a => a.activo).map(a => a.email), ...GL.map(g => (g.aprobador_email || '').toLowerCase()), ...UL.filter(u => u.activa).map(u => u.correo || '')].filter(Boolean))];
+  const faltan = CUENTAS === null ? [] : registrados.filter(e => !conCta.has(e)).map(e => ({email:e, sinCuenta:true}));
+  const l = (CUENTAS || []).concat(faltan).map(c => ({...c, rol:rolDe(c.email)})).filter(c => !q || normTxt(c.email + ' ' + c.rol).includes(q)).sort((a, b) => (!!a.sinCuenta) - (!!b.sinCuenta) || (!a.rol) - (!b.rol) || a.email.localeCompare(b.email));
   const fd = t => { if(!t) return '—'; const d = new Date(t); return `${pad(d.getDate())}/${pad(d.getMonth() + 1)}/${d.getFullYear()} ${pad(d.getHours())}:${pad(d.getMinutes())}`; };
-  return `<section class="panel${plegCls('cuentas')}"><div class="panel-head"><div><h2>Cuentas de ingreso ${plegBtn('cuentas')}</h2><p class="sub">${CUENTAS === null ? 'Cargando…' : `${plural(CUENTAS.length, 'cuenta', 'cuentas')} creadas. Si alguien olvidó su contraseña, use <strong>Restablecer</strong> y pásele la nueva.`}</p></div>
+  return `<section class="panel${plegCls('cuentas')}"><div class="panel-head"><div><h2>Cuentas de ingreso ${plegBtn('cuentas')}</h2><p class="sub">${CUENTAS === null ? 'Cargando…' : `${plural(CUENTAS.length, 'cuenta creada', 'cuentas creadas')}${faltan.length ? ` · <span class="chip alerta">${plural(faltan.length, 'correo con rol sin cuenta', 'correos con rol sin cuenta')}</span>` : ''}. Si alguien olvidó su contraseña, use <strong>Restablecer</strong> y pásele la nueva.`}</p></div>
     <div class="row"><input id="fCtaQ" placeholder="Buscar correo o rol…" value="${esc(fCtaQ)}" style="width:220px" autocomplete="off"></div></div>
-    <div class="tbl-wrap" style="max-height:52vh;overflow:auto"><table><thead><tr><th>Correo</th><th>Rol en la app</th><th>Último ingreso</th><th class="num"></th></tr></thead><tbody>${l.map(c => `<tr><td class="mono" style="font-size:12.5px">${esc(c.email)}</td><td>${c.rol ? esc(c.rol) : '<span class="chip alerta">sin rol</span>'}</td><td class="sub">${c.ultimo ? fd(c.ultimo) : 'nunca'}</td><td class="num"><button class="btn btn-sm" data-reset-pass="${esc(c.email)}">Restablecer contraseña</button></td></tr>`).join('') || `<tr><td colspan="4" class="empty">${CUENTAS === null ? 'Cargando…' : 'No hay cuentas.'}</td></tr>`}</tbody></table></div></section>`;
+    <div class="tbl-wrap" style="max-height:52vh;overflow:auto"><table><thead><tr><th>Correo</th><th>Rol en la app</th><th>Último ingreso</th><th class="num"></th></tr></thead><tbody>${l.map(c => `<tr><td class="mono" style="font-size:12.5px">${esc(c.email)}</td><td>${c.rol ? esc(c.rol) : '<span class="chip alerta">sin rol</span>'}</td><td class="sub">${c.sinCuenta ? '<span class="chip alerta">sin cuenta</span>' : c.ultimo ? fd(c.ultimo) : 'nunca'}</td><td class="num">${c.sinCuenta ? `<button class="btn btn-sm btn-primary" data-crear-cta="${esc(c.email)}">Crear cuenta</button>` : `<button class="btn btn-sm" data-reset-pass="${esc(c.email)}">Restablecer contraseña</button>`}</td></tr>`).join('') || `<tr><td colspan="4" class="empty">${CUENTAS === null ? 'Cargando…' : 'No hay cuentas.'}</td></tr>`}</tbody></table></div></section>`;
 }
 const passAzar = () => { const c = 'abcdefghjkmnpqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789'; let r = ''; const a = new Uint32Array(10); crypto.getRandomValues(a); a.forEach(n => r += c[n % c.length]); return r; };
 function abrirCrearUsuario(email){
@@ -719,6 +723,19 @@ async function crearUsuario(btn){
   $('uaOk').hidden = false; $('uaGuardar').disabled = true;
   await Promise.all([cargarCuentas(), cargarAdmins(), cargarBase().catch(() => {})]); render();
 }
+async function crearCuentaSola(email){
+  const nueva = passAzar();
+  const ok = await confirmar(`<p>Crear la cuenta de ingreso de <strong>${esc(email)}</strong>. Su rol ya está asignado: <strong>${esc(rolDe(email) || '—')}</strong>.</p><label class="f">Contraseña inicial<input id="rpPass" value="${esc(nueva)}" maxlength="60" autocomplete="off"></label>`, {html:true, titulo:'Crear cuenta', si:'Crear cuenta', tono:'btn-primary'});
+  if(!ok) return;
+  const pass = (document.getElementById('rpPass')?.value || nueva).trim();
+  if(pass.length < 6){ toast('La contraseña debe tener al menos 6 caracteres.'); return; }
+  const {data, error} = await sb.functions.invoke('usuarios', {body:{accion:'crear', email, password:pass}});
+  const msg = error ? (await error.context?.json?.().catch(() => null))?.error || errMsg(error) : data?.error;
+  if(msg){ toast('No se pudo: ' + msg); return; }
+  try{ await navigator.clipboard.writeText(`Enlace: ${location.origin + location.pathname}\nCorreo: ${email}\nContraseña: ${pass}`); }catch(e){}
+  await cargarCuentas(); render();
+  await confirmar(`<p>Cuenta creada. Pásele estos datos:</p><div class="ua-datos"><div>Enlace: <span class="mono">${esc(location.origin + location.pathname)}</span></div><div>Correo: <span class="mono">${esc(email)}</span></div><div>Contraseña: <span class="mono">${esc(pass)}</span></div></div><p class="sub">Ya se copiaron al portapapeles.</p>`, {html:true, titulo:'Listo', si:'Entendido', tono:'btn-primary'});
+}
 async function restablecerPass(email){
   const nueva = passAzar();
   const ok = await confirmar(`<p>Se cambiará la contraseña de <strong>${esc(email)}</strong>. La anterior dejará de funcionar.</p><label class="f">Contraseña nueva<input id="rpPass" value="${esc(nueva)}" maxlength="60" autocomplete="off"></label>`, {html:true, titulo:'Restablecer contraseña', si:'Cambiar contraseña', tono:'btn-primary'});
@@ -738,6 +755,7 @@ document.addEventListener('click', e => {
   if(t.id === 'uaGenerar') $('uaPass').value = passAzar();
   if(t.id === 'uaCopiar'){ const txt = $('uaOk').querySelector('.ua-datos').innerText; navigator.clipboard?.writeText(txt).then(() => toast('Datos copiados.'), () => toast('No se pudo copiar.')); }
   const rp = t.closest?.('[data-reset-pass]'); if(rp) restablecerPass(rp.dataset.resetPass);
+  const cc = t.closest?.('[data-crear-cta]'); if(cc) crearCuentaSola(cc.dataset.crearCta);
 });
 document.addEventListener('change', e => { if(e.target.id === 'uaRol') pintaRolUA(); });
 document.addEventListener('input', e => { if(e.target.id === 'fCtaQ'){ fCtaQ = e.target.value; render(); } });
