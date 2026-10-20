@@ -1084,7 +1084,7 @@ function pintaCombo(inp, q){
   let html = '', ult = null;
   l.forEach((u, i) => { const g = u.tipo === 'Sucursal' ? 'Sucursales' : u.tipo;
     if(!q.trim() && g !== ult){ html += `<div class="combo-grp">${esc(g)}</div>`; ult = g; }
-    html += `<button type="button" role="option" data-u="${esc(u.id)}" data-i="${i}" class="${i === 0 ? 'act' : ''}"><span>${esc(u.nombre)}</span><span class="chip">${esc(u.tipo === 'Sucursal' ? (u.codigo_sala || 'sala') : u.tipo)}</span></button>`; });
+    html += `<button type="button" role="option" data-u="${esc(u.id)}" data-i="${i}" class="${i === 0 ? 'act' : ''}"><span>${esc(u.nombre)}${tab === 'solicitar' && salaBloqueada(u) ? ' 🔒' : ''}</span><span class="chip">${esc(u.tipo === 'Sucursal' ? (u.codigo_sala || 'sala') : u.tipo)}</span></button>`; });
   box.innerHTML = html || '<div class="none">No se encontró. Pruebe con el número de sala o parte del nombre.</div>';
   box.hidden = false; inp.setAttribute('aria-expanded', 'true');
 }
@@ -1102,7 +1102,10 @@ document.addEventListener('keydown', e => {
 });
 document.addEventListener('mousedown', e => { if(e.target.closest('.combo-lista, .combo-btn')) e.preventDefault(); });
 // elección manual de sala: en el Solicitar, la primera vez que una sucursal se elige en este equipo, se pregunta si el equipo es solo de esa sala
+// sala con usuario propio: solo ese usuario (o logística / su aprobador) puede pedir por ella
+const salaBloqueada = u => !!(u && u.correo && !rol.admin && !rol.grupos.includes(u.grupo_id) && rol.unidad !== u.id);
 async function elegirUnidad(id){
+  if(tab === 'solicitar' && salaBloqueada(U[id])){ toast(`${U[id].nombre} tiene usuario propio: para pedir, ingrese con esa cuenta.`); return; }
   setUnidad(id);
   const u = U[id];
   if(tab !== 'solicitar' || !u || u.tipo !== 'Sucursal' || rol.admin || rol.grupos.length || sesion || EXIGIR || salaEquipo() || store.get('fch_equipo_compartido') === '1') return;
