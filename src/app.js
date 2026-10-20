@@ -487,10 +487,13 @@ function kpis(lista){
     <div class="kpi conf"><p>Aprobadas por entregar</p><b>${conf.length}</b><span>listas para preparar</span></div>
     <div class="kpi ent"><p>Entregadas · 7 días</p><b>${ent7.length}</b><span>solicitudes</span></div>
     <div class="kpi tiempo"><p>Tiempo a confirmar</p><b>${prom == null ? '–' : fDias(prom)}</b><span>promedio</span></div>
-    <div class="kpi tiempo"><p>Tiempo a entregar</p><b>${promE == null ? '–' : fDias(promE)}</b><span>desde la confirmación</span></div>${verPrecios() ? (() => { const c = cicloActivo(), l = lista.filter(p => cicloDe(p.ts) === c && (p.estado === 'Confirmada' || p.estado === 'Entregada')), v = l.reduce((a,p) => a + valorPedido(p, p.estado === 'Entregada').total, 0); return `<div class="kpi valor"><p>Valor del ciclo · ${esc(nombreCiclo(c))}</p><b>${fBs(v)}</b><span>${plural(l.length, 'solicitud aprobada', 'solicitudes aprobadas')}</span></div>`; })() : ''}</div>`;
+    <div class="kpi tiempo"><p>Tiempo a entregar</p><b>${promE == null ? '–' : fDias(promE)}</b><span>desde la confirmación</span></div>${verPrecios() ? (() => { const c = cicloActivo(), l = lista.filter(p => cicloDe(p.ts) === c && (p.estado === 'Confirmada' || p.estado === 'Aprobada' || p.estado === 'Entregada')), v = l.reduce((a,p) => a + valorPedido(p, p.estado === 'Entregada').total, 0); return `<div class="kpi valor"><p>Valor del ciclo · ${esc(nombreCiclo(c))}</p><b>${fBs(v)}</b><span>${plural(l.length, 'solicitud aprobada', 'solicitudes aprobadas')}</span></div>`; })() : ''}</div>`;
 }
+// el Resumen muestra el ciclo actual (y lo que siga pendiente de ciclos anteriores)
+const PEND = ['Enviada','Confirmada','Aprobada'];
+const delCicloActual = () => { const c = cicloActivo(); return pedidos.filter(p => cicloDe(p.ts) === c || PEND.includes(p.estado)); };
 function mapa(grupos){
-  const ult = {}; pedidos.forEach(p => { if(!ult[p.unidad_id] || ult[p.unidad_id].ts < p.ts) ult[p.unidad_id] = p; });
+  const ult = {}; delCicloActual().forEach(p => { if(!ult[p.unidad_id] || ult[p.unidad_id].ts < p.ts) ult[p.unidad_id] = p; });
   return `<div class="leyenda"><span><i></i>Sin solicitud</span><span><i class="Enviada"></i>Enviada</span><span><i class="Confirmada"></i>Por aprobación final</span><span><i class="Aprobada"></i>Aprobada</span><span><i class="Entregada"></i>Entregada</span><span><i class="Rechazada"></i>Rechazada</span></div><div class="mapa">` +
     grupos.map(g => { const us = UL.filter(u => u.grupo_id === g.id && u.activa); if(!us.length) return '';
       const pend = us.filter(u => ult[u.id]?.estado === 'Enviada').length, suc = g.tipo === 'Sucursales' || g.tipo === 'Sin asignar';
@@ -562,19 +565,19 @@ async function confirmarApertura(id, btn){
 function vTablero(){
   const tot = {Enviada:0, Confirmada:0, Entregada:0, Rechazada:0};
   const filas = GL.map(g => {
-    const l = pedidos.filter(p => grupoDe(p) === g.id), c = e => l.filter(p => p.estado === e || (e === 'Confirmada' && p.estado === 'Aprobada')).length;
+    const l = delCicloActual().filter(p => grupoDe(p) === g.id), c = e => l.filter(p => p.estado === e || (e === 'Confirmada' && p.estado === 'Aprobada')).length;
     Object.keys(tot).forEach(e => tot[e] += c(e));
     const pend = l.filter(p => p.estado === 'Enviada'); const vieja = pend.length ? Math.max(...pend.map(p => horas(Date.now() - p.ts))) : 0;
     const n = v => v ? v : '<span class="sub">0</span>';
     return `<tr><td><span class="gtag" data-g="${esc(g.id)}">${esc(g.aprobador)}</span>${g.aprobador_email || g.id === 'SIN' ? '' : ' <span class="chip alerta" title="Configure su correo para que pueda ingresar">sin correo</span>'}</td>
-      <td class="num">${c('Enviada') ? `<b>${c('Enviada')}</b>` : n(0)}</td><td class="num">${n(c('Confirmada'))}</td><td class="num">${n(c('Entregada'))}</td><td class="num">${n(c('Rechazada'))}</td><td class="num"><b>${l.length}</b></td>${verPrecios() ? `<td class="num" style="white-space:nowrap">${fBs(l.filter(p => cicloDe(p.ts) === cicloActivo() && (p.estado === 'Confirmada' || p.estado === 'Entregada')).reduce((a,p) => a + valorPedido(p, p.estado === 'Entregada').total, 0))}</td>` : ''}
+      <td class="num">${c('Enviada') ? `<b>${c('Enviada')}</b>` : n(0)}</td><td class="num">${n(c('Confirmada'))}</td><td class="num">${n(c('Entregada'))}</td><td class="num">${n(c('Rechazada'))}</td><td class="num"><b>${l.length}</b></td>${verPrecios() ? `<td class="num" style="white-space:nowrap">${fBs(l.filter(p => cicloDe(p.ts) === cicloActivo() && (p.estado === 'Confirmada' || p.estado === 'Aprobada' || p.estado === 'Entregada')).reduce((a,p) => a + valorPedido(p, p.estado === 'Entregada').total, 0))}</td>` : ''}
       <td class="num">${pend.length ? (vieja > 48 ? `<span class="chip alerta">${fDias(vieja)}</span>` : fDias(vieja)) : '<span class="sub">–</span>'}</td></tr>`;
   }).join('');
   const T = Object.values(tot).reduce((a,b) => a + b, 0);
-  return bannerPush() + lineaCicloCorta(cicloActivo()) + vAperturas() + bloqueAvisos(a => !a.apertura) + kpis(pedidos) + `<section class="panel"><div class="panel-head"><div><h2>Mapa de sucursales y áreas</h2><p class="sub">Color según la última solicitud. Toque un cuadro para abrirla.</p></div></div>${mapa(GL)}</section>
-    <section class="panel resumen-aprob"><div class="panel-head"><div><h3 style="margin:0">Resumen por aprobador</h3><p class="sub">Solicitudes de cada aprobador según su estado.</p></div></div>
+  return bannerPush() + lineaCicloCorta(cicloActivo()) + vAperturas() + bloqueAvisos(a => !a.apertura) + kpis(delCicloActual()) + `<section class="panel"><div class="panel-head"><div><h2>Mapa de sucursales y áreas · ${esc(nombreCiclo(cicloActivo()))}</h2><p class="sub">Color según su solicitud del ciclo actual (gris: todavía no pidió). Toque un cuadro para abrirla. Los ciclos anteriores se ven en Cobertura y Todos.</p></div></div>${mapa(GL)}</section>
+    <section class="panel resumen-aprob"><div class="panel-head"><div><h3 style="margin:0">Resumen por aprobador · ${esc(nombreCiclo(cicloActivo()))}</h3><p class="sub">Solicitudes del ciclo actual de cada aprobador, según su estado.</p></div></div>
     <div class="tbl-wrap"><table class="tbl-resumen"><thead><tr><th>Aprobador</th><th class="num">Por confirmar</th><th class="num">Confirmadas</th><th class="num">Entregadas</th><th class="num">Rechazadas</th><th class="num">Total</th>${verPrecios() ? `<th class="num">Valor ${esc(nombreCiclo(cicloActivo()).split(' ')[0].toLowerCase())}</th>` : ''}<th class="num" title="Tiempo de la solicitud más antigua sin confirmar">Más antigua</th></tr></thead><tbody>${filas}</tbody>
-    <tfoot><tr><td>Total</td><td class="num">${tot.Enviada}</td><td class="num">${tot.Confirmada}</td><td class="num">${tot.Entregada}</td><td class="num">${tot.Rechazada}</td><td class="num">${T}</td>${verPrecios() ? `<td class="num" style="white-space:nowrap">${fBs(pedidos.filter(p => cicloDe(p.ts) === cicloActivo() && (p.estado === 'Confirmada' || p.estado === 'Entregada')).reduce((a,p) => a + valorPedido(p, p.estado === 'Entregada').total, 0))}</td>` : ''}<td></td></tr></tfoot></table></div></section>`;
+    <tfoot><tr><td>Total</td><td class="num">${tot.Enviada}</td><td class="num">${tot.Confirmada}</td><td class="num">${tot.Entregada}</td><td class="num">${tot.Rechazada}</td><td class="num">${T}</td>${verPrecios() ? `<td class="num" style="white-space:nowrap">${fBs(pedidos.filter(p => cicloDe(p.ts) === cicloActivo() && (p.estado === 'Confirmada' || p.estado === 'Aprobada' || p.estado === 'Entregada')).reduce((a,p) => a + valorPedido(p, p.estado === 'Entregada').total, 0))}</td>` : ''}<td></td></tr></tfoot></table></div></section>`;
 }
 let fEnt = 'TODOS';
 function vEntregar(){
