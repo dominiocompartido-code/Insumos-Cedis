@@ -278,6 +278,7 @@ document.addEventListener('change', e => {
   if(id === 'fCobGr'){ fCobGr = e.target.value; render(); }
   if(id === 'fCobSolo'){ fCobSolo = e.target.checked; render(); }
   if(id === 'fCobCiclo'){ fCobCiclo = +e.target.value; render(); }
+  if(id === 'fIndCiclo'){ fIndCiclo = +e.target.value; render(); }
   if(id === 'fPrepCiclo'){ fPrepCiclo = +e.target.value; render(); }
   if(id === 'fPrepAlc'){ fPrepAlc = e.target.value; render(); }
 });
