@@ -1210,6 +1210,7 @@ document.addEventListener('change', e => {
   if(id === 'fPrep'){ fPrep = e.target.value; render(); }
   if(id === 'fTodEst'){ fTodEst = e.target.value; render(); }
   if(id === 'fTodGr'){ fTodGr = e.target.value; render(); }
+  if(id === 'fTodMes'){ fTodMes = e.target.value; render(); }
   if(id === 'fGrupoEst'){ fGrupoEst = e.target.value; render(); }
   if(id === 'fCfgGr'){ fCfgGr = e.target.value; render(); }
   if(e.target.dataset.nk != null){ const k = +e.target.dataset.nk, v = parseInt(e.target.value); if(v >= 0) borrador[k].cantidad = v; else e.target.value = borrador[k].cantidad; pintaResumen(); }
@@ -1556,12 +1557,13 @@ function vPreparacion(){
       `<tr class="tot"><td></td><td>Total</td><td></td>${MUELLES.map(m => `<td class="num">${tot[m] || '–'}</td>`).join('')}<td class="num">${filas.reduce((a,f) => a + f.total, 0)}</td><td></td>${verPrecios() ? `<td class="num" style="white-space:nowrap">${fBs(filas.reduce((a,f) => a + (P[f.codigo] || 0) * f.total, 0))}</td>` : ''}</tr>`
       : '<tr><td colspan="11" class="empty">Nada pendiente de preparar.</td></tr>') + '</tbody></table></div></section>';
 }
-let fTodEst = 'TODOS', fTodGr = 'TODOS', fTodQ = '';
+let fTodEst = 'TODOS', fTodGr = 'TODOS', fTodQ = '', fTodMes = 'TODOS';
+const selMes = (id, val) => { const ms = [...new Set(pedidos.map(p => cicloDe(p.ts)))].sort((a, b) => b - a); return `<select id="${id}" style="width:auto" title="Mes de envío de la solicitud"><option value="TODOS">Todos los meses</option>${ms.map(m => `<option value="${m}" ${String(val) === String(m) ? 'selected' : ''}>${esc(nombreCiclo(m))}</option>`).join('')}</select>`; };
 function vTodos(){
   const q = fTodQ.toLowerCase();
-  const l = pedidos.filter(p => (fTodEst === 'TODOS' || p.estado === fTodEst) && (fTodGr === 'TODOS' || grupoDe(p) === fTodGr) && (!q || p.codigo.toLowerCase().includes(q) || (U[p.unidad_id]?.nombre || '').toLowerCase().includes(q) || (p.nro_traspaso || '').toLowerCase().includes(q)));
+  const l = pedidos.filter(p => (fTodMes === 'TODOS' || cicloDe(p.ts) === +fTodMes) && (fTodEst === 'TODOS' || p.estado === fTodEst) && (fTodGr === 'TODOS' || grupoDe(p) === fTodGr) && (!q || p.codigo.toLowerCase().includes(q) || (U[p.unidad_id]?.nombre || '').toLowerCase().includes(q) || (p.nro_traspaso || '').toLowerCase().includes(q)));
   return `<section class="panel"><div class="panel-head"><div><h2>Todas las solicitudes</h2><p class="sub">${l.length} de ${pedidos.length}${l.length > 300 ? ' · se muestran las 300 más recientes' : ''}</p></div>
-    <div class="row"><input id="fTodQ" placeholder="Buscar sucursal, N° o traspaso…" value="${esc(fTodQ)}" style="width:200px">${selEstado('fTodEst', fTodEst)}${selGrupo('fTodGr', fTodGr)}</div></div>
+    <div class="row"><input id="fTodQ" placeholder="Buscar sucursal, N° o traspaso…" value="${esc(fTodQ)}" style="width:200px">${selMes('fTodMes', fTodMes)}${selEstado('fTodEst', fTodEst)}${selGrupo('fTodGr', fTodGr)}</div></div>
     ${tabla(l.slice(0,300), ['codigo','unidad','aprob','enviada','items','estado','avance'], 'Ninguna solicitud coincide.')}</section>`;
 }
 
