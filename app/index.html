@@ -1274,7 +1274,8 @@ const diasA = d => Math.round((new Date(d + 'T12:00:00') - new Date(hoyISO() + '
 const txtAbre = d => { if(!d) return 'sin fecha de inauguración'; const n = diasA(d); return n > 1 ? `abre en ${n} días (${fDia(d)})` : n === 1 ? `abre mañana (${fDia(d)})` : n === 0 ? 'abre hoy' : `abrió hace ${plural(-n, 'día', 'días')}`; };
 const ordenApert = (a,b) => ((b.tipo === 'Apertura') - (a.tipo === 'Apertura')) || (a.tipo === 'Apertura' ? String(a.fecha_apertura || '9999').localeCompare(String(b.fecha_apertura || '9999')) : 0);
 const salaNueva = u => u && u.creada_ts && (Date.now() - Date.parse(u.creada_ts)) < 120 * 864e5 && !pedidos.some(p => p.unidad_id === u.id && p.tipo === 'Apertura' && p.estado !== 'Rechazada');
-const puedeKit = u => KIT.length && u && (salaNueva(u) || rol.admin || rol.grupos.length);
+// el kit de apertura solo lo ofrece la supervisora de la sala
+const puedeKit = u => KIT.length && u && u.tipo === 'Sucursal' && !['OFC','CEDIS','SIN'].includes(u.grupo_id) && rol.grupos.includes(u.grupo_id);
 function cargarKit(){
   const l = KIT.map(k => M[k.codigo] && matActivo(M[k.codigo]) ? {codigo:k.codigo, descripcion:M[k.codigo].descripcion, unidad:M[k.codigo].unidad, categoria:M[k.codigo].categoria, cantidad:+k.cantidad} : null).filter(Boolean);
   borrador = l; esApertura = true; pintaBorrador(); render(); toast(`Se cargó el kit de apertura (${plural(l.length, 'insumo', 'insumos')}). Ajuste lo que haga falta antes de enviar.`);
