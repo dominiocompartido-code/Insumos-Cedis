@@ -77,7 +77,7 @@ function alertas(){
     if(fa === 'compras'){ const conf = delCiclo(c, p => p.estado === 'Confirmada' || p.estado === 'Aprobada' || p.estado === 'Entregada').length; A.push({nivel:'info', titulo:'Fase de compras', texto:`${plural(conf, 'solicitud aprobada', 'solicitudes aprobadas')} en el ciclo. Genere el reporte de dotación en Preparación.`, tab:'preparacion'}); }
     const prev = cicloMenos(c, 1), conDot = new Set(delCicloTodos(prev, p => p.estado === 'Entregada').map(p => p.unidad_id));
     const nodot = UL.filter(u => u.activa && u.tipo === 'Sucursal' && vigenteEn(u, prev) && !conDot.has(u.id)).length;
-    if(nodot && pedidos.some(p => cicloDe(p.ts) === prev)) A.push({nivel:'info', titulo:`${plural(nodot, 'sala no fue dotada', 'salas no fueron dotadas')} en ${nombreCiclo(prev)}`, texto:'Vea el detalle en Cobertura.', tab:'cobertura'});
+    if(false && nodot && pedidos.some(p => cicloDe(p.ts) === prev)) A.push({nivel:'info', titulo:`${plural(nodot, 'sala no fue dotada', 'salas no fueron dotadas')} en ${nombreCiclo(prev)}`, texto:'Vea el detalle en Cobertura.', tab:'cobertura'});
   }
   return A;
 }
