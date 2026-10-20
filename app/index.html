@@ -1431,7 +1431,7 @@ function vSeguimiento(){
   if(!u) return h + '<div class="notice info">Elija su sucursal o área para ver sus solicitudes.</div></section>';
   const l = pedidos.concat(anuladas).filter(p => p.unidad_id === u.id).sort((a,b) => b.ts - a.ts);
   return h + tabla(segTodas ? l : l.slice(0, 20), ['codigo','enviada','items','estado','avance','anular'], 'Esta unidad todavía no envió solicitudes.') +
-    (!segTodas && l.length > 20 ? '<div class="row right"><button class="btn btn-sm" id="segVerTodas">Ver todas</button></div>' : '') + '</section>';
+    (!segTodas && l.length > 20 ? '<div class="row right"><button class="btn btn-sm" id="segVerTodas">Ver todas</button></div>' : '') + '</section>' + vNuevosSala(u);
 }
 
 // ---------- tablas comunes ----------
@@ -2653,11 +2653,11 @@ async function enviarPedirNuevo(btn){
   if(!sol) return err('Escriba su nombre.');
   if(!just) return err('Explique para qué lo necesita.');
   btn.disabled = true;
-  const {error} = await sb.from('nuevos').insert({nombre_material:nom.toUpperCase().slice(0, 120), descripcion:nom.slice(0, 200), unidad:um.toUpperCase().slice(0, 10) || null, cantidad:cant, area:U[u].nombre, solicitante:sol.slice(0, 100), justificacion:just.slice(0, 500), estado:'Pendiente de revisión'});
+  const {error} = await sb.from('nuevos').insert({nombre_material:nom.toUpperCase().slice(0, 120), descripcion:nom.slice(0, 200), unidad:um.toUpperCase().slice(0, 10) || null, cantidad:cant, area:U[u].nombre, unidad_id:u, solicitante:sol.slice(0, 100), justificacion:just.slice(0, 500), estado:'Pendiente de revisión'});
   btn.disabled = false;
   if(error) return err(errMsg(error));
   $('mNuevoMat').hidden = true; if($('nBuscar')) $('nBuscar').value = ''; if($('nRes')) $('nRes').hidden = true;
-  toast('Solicitud de material nuevo enviada. Logística la revisará; cuando lo agregue a la lista ya podrá pedirlo.');
+  NUEVOS_SALA[u] = null; toast('Solicitud de material nuevo enviada. Puede ver si se aprobó en Seguimiento.');
 }
 function vNuevos(){
   if(!rol.admin) return '';
@@ -2673,10 +2673,25 @@ document.addEventListener('click', async e => {
   if(t.closest?.('[data-pedir-nuevo]')) abrirPedirNuevo();
   if(t.id === 'nmEnviar') enviarPedirNuevo(t);
   const nc = t.closest?.('[data-nuevo-crear]'); if(nc){ const n = NUEVOS.find(x => x.id === nc.dataset.nuevoCrear); if(!n) return; abrirNuevoMaterial(); nuevoEnCurso = n.id; $('matDesc').value = n.nombre_material || ''; $('matUM').value = n.unidad || ''; $('matDesc').dispatchEvent(new Event('input', {bubbles:true})); $('matCod').focus(); }
-  const nr = t.closest?.('[data-nuevo-rech]'); if(nr){ const n = NUEVOS.find(x => x.id === nr.dataset.nuevoRech); if(!n || !await confirmar(`¿Rechazar el pedido de "${n.nombre_material}" de ${n.area}?`, {titulo:'Rechazar material nuevo', si:'Sí, rechazar', tono:'btn-danger'})) return;
-    const {error} = await sb.from('nuevos').update({estado:'Rechazado', fecha_resolucion:new Date().toISOString()}).eq('id', n.id); if(error){ toast(errMsg(error)); return; } await cargarNuevos(); toast('Pedido de material rechazado.'); render(); }
+  const nr = t.closest?.('[data-nuevo-rech]'); if(nr){ const n = NUEVOS.find(x => x.id === nr.dataset.nuevoRech); if(!n || !await confirmar(`<p>¿Rechazar el pedido de <strong>${esc(n.nombre_material)}</strong> de ${esc(n.area)}?</p><label class="f">Motivo (lo verá la sala)<input id="nvMotivo" maxlength="300" placeholder="Ej: ya existe como PAÑO DE FRANELA GRANDE"></label>`, {html:true, titulo:'Rechazar material nuevo', si:'Sí, rechazar', tono:'btn-danger'})) return;
+    const {error} = await sb.from('nuevos').update({estado:'Rechazado', motivo_rechazo:(document.getElementById('nvMotivo')?.value || '').trim().slice(0, 300) || null, fecha_resolucion:new Date().toISOString()}).eq('id', n.id); if(error){ toast(errMsg(error)); return; } await cargarNuevos(); toast('Pedido de material rechazado.'); render(); }
 });
 document.addEventListener('click', e => { if(e.target.closest?.('[data-close="mMaterial"]')) nuevoEnCurso = null; });
+
+// materiales nuevos pedidos por la sala: pendientes, aprobados (creados) o rechazados
+let NUEVOS_SALA = {};
+async function cargarNuevosSala(uid){ const u = U[uid]; if(!u) return;
+  try{ const {data} = await sb.from('nuevos').select('*').order('ts', {ascending:false}).limit(300); NUEVOS_SALA[uid] = (data || []).filter(n => n.unidad_id === uid || (!n.unidad_id && n.area === u.nombre)).slice(0, 30); }catch(e){ NUEVOS_SALA[uid] = []; }
+  if(tab === 'seguimiento' && unidadSel === uid) render(); }
+function vNuevosSala(u){
+  if(!u) return '';
+  if(!(u.id in NUEVOS_SALA) || NUEVOS_SALA[u.id] === null){ NUEVOS_SALA[u.id] = undefined; cargarNuevosSala(u.id); return ''; }
+  const l = NUEVOS_SALA[u.id] || []; if(!l.length) return '';
+  const fd = t => { const d = new Date(t); return `${pad(d.getDate())}/${pad(d.getMonth() + 1)}`; };
+  const est = n => n.estado === 'Creado' ? `<span class="chip Entregada">Aprobado</span><div class="sub" style="margin:2px 0 0">Ya está en la lista${n.codigo_asignado ? ` con el código <strong>${esc(n.codigo_asignado)}</strong>` : ''}: búsquelo en Solicitar.</div>` : n.estado === 'Rechazado' ? `<span class="chip Rechazada">Rechazado</span>${n.motivo_rechazo ? `<div class="sub" style="margin:2px 0 0">${esc(n.motivo_rechazo)}</div>` : ''}` : '<span class="chip Enviada">Pendiente</span><div class="sub" style="margin:2px 0 0">Logística lo está revisando.</div>';
+  return `<section class="panel"><div class="panel-head"><div><h2>Materiales nuevos solicitados</h2><p class="sub">Insumos que ${esc(u.nombre)} pidió agregar a la lista.</p></div></div>
+    <div class="tbl-wrap"><table><thead><tr><th>Fecha</th><th>Material</th><th class="num">Cant.</th><th>Pidió</th><th>Estado</th></tr></thead><tbody>${l.map(n => `<tr><td class="sub">${fd(n.ts)}</td><td><strong>${esc(n.nombre_material)}</strong>${n.unidad ? ` <span class="chip">${esc(n.unidad)}</span>` : ''}</td><td class="num">${esc(n.cantidad ?? '')}</td><td>${esc(n.solicitante || '')}</td><td>${est(n)}</td></tr>`).join('')}</tbody></table></div></section>`;
+}
 
 </script>
 </body>
