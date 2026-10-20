@@ -525,7 +525,7 @@ function vGrupo(){
 
 // ---------- vistas: logística ----------
 // ---------- aperturas en curso ----------
-const aperturasEnCurso = () => pedidos.filter(p => p.tipo === 'Apertura' && p.origen !== 'historico' && (p.estado === 'Enviada' || p.estado === 'Confirmada' || (p.estado === 'Entregada' && Date.now() - p.entregado_ts < 7 * 864e5)))
+const aperturasEnCurso = () => pedidos.filter(p => p.tipo === 'Apertura' && p.origen !== 'historico' && (p.estado === 'Enviada' || p.estado === 'Confirmada'))
   .sort((a,b) => ((a.estado === 'Entregada') - (b.estado === 'Entregada')) || String(a.fecha_apertura || '9999').localeCompare(String(b.fecha_apertura || '9999')));
 const riesgoApertura = p => { const n = p.fecha_apertura ? diasA(p.fecha_apertura) : null;
   if(p.estado === 'Enviada' && horas(Date.now() - p.ts) > 24) return 'Lleva más de 24 h sin confirmar';
