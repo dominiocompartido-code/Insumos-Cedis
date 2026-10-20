@@ -766,8 +766,10 @@ function estadoCiclo(uid, c){
 }
 const inicioDatos = () => pedidos.length ? Math.min(...pedidos.map(p => cicloDe(p.ts))) : cicloActivo();
 const contarSinDotar = (est, ciclos, ini) => est.slice(0, 5).filter((e, i) => ciclos[i] >= ini && e !== 'Entregada').length;
-const gruposCob = () => rol.admin || rol.consulta ? GL : GL.filter(g => rol.grupos.includes(g.id));
-const unidadesCob = (tipo, gr) => UL.filter(u => u.activa && (rol.admin || rol.consulta || rol.grupos.includes(u.grupo_id)) && (!(rol.admin || rol.consulta) || tipo === 'TODOS' || u.tipo === tipo) && (gr === 'TODOS' || u.grupo_id === gr));
+// Logística, Consulta y Jefatura (Helen, Hubert) ven la cobertura de todas las salas
+const verTodoCob = () => rol.admin || !!rol.consulta || (typeof esJefatura === 'function' && esJefatura());
+const gruposCob = () => verTodoCob() ? GL : GL.filter(g => rol.grupos.includes(g.id));
+const unidadesCob = (tipo, gr) => UL.filter(u => u.activa && (verTodoCob() || rol.grupos.includes(u.grupo_id)) && (!verTodoCob() || tipo === 'TODOS' || u.tipo === tipo) && (gr === 'TODOS' || u.grupo_id === gr));
 // ---------- indicadores de cobertura: % dotación, plazos y consumo por sala ----------
 let fIndCiclo = 4;
 const diasEntre = (a, b) => (b - a) / 864e5;
@@ -794,7 +796,7 @@ function deltaCob(a, b, cB, mejorSube = true, suf = ' pts'){
   return `<span class="ind-d ${bien ? 'up' : 'down'}">${d > 0 ? '▲' : '▼'} ${f1c(Math.abs(d))}${suf} vs ${esc(nombreCiclo(cB).split(' ')[0].toLowerCase())}</span>`;
 }
 function vCobertura(){
-  if(!rol.admin && !rol.consulta && fCobGr !== 'TODOS' && !rol.grupos.includes(fCobGr)) fCobGr = 'TODOS';
+  if(!verTodoCob() && fCobGr !== 'TODOS' && !rol.grupos.includes(fCobGr)) fCobGr = 'TODOS';
   const cA = cicloActivo(), ciclos = [5,4,3,2,1,0].map(k => cicloMenos(cA, k)), gs = gruposCob(), us = unidadesCob(fCobTipo, fCobGr);
   const idx = Math.max(1, Math.min(5, fIndCiclo)), c = ciclos[idx], A = indicadoresCiclo(c, us), B = indicadoresCiclo(ciclos[idx - 1], us), ini = inicioDatos();
   const serie = ciclos.map(cc => { const vig = us.filter(u => vigenteEn(u, cc) && cc >= ini), cnt = {}; vig.forEach(u => { const e = estadoCiclo(u.id, cc) || 'none'; cnt[e] = (cnt[e] || 0) + 1; }); return {c:cc, total:vig.length, cnt}; });
@@ -825,10 +827,10 @@ function vCobertura(){
   const sinSol = us.filter(u => vigenteEn(u, c) && c >= ini && !estadoCiclo(u.id, c)).sort((a, b) => ordU(a) - ordU(b));
   const porEnt = us.filter(u => vigenteEn(u, c) && estadoCiclo(u.id, c) === 'Confirmada').length;
   const kpi = (t, v, d, s, cls = '') => `<div class="ind ${cls}"><div class="ind-t">${t}</div><div class="ind-v">${v}</div>${d}<div class="ind-s">${s}</div></div>`;
-  return `<section class="panel"><div class="panel-head"><div><h2>Cobertura e indicadores</h2><p class="sub">${rol.admin || rol.consulta ? 'Todas las salas' : esc(gs.map(g => g.nombre).join(', '))} · el ciclo elegido comparado con el anterior. Pase el mouse sobre las barras para ver el detalle.</p></div>
+  return `<section class="panel"><div class="panel-head"><div><h2>Cobertura e indicadores</h2><p class="sub">${verTodoCob() ? 'Todas las salas' : esc(gs.map(g => g.nombre).join(', '))} · el ciclo elegido comparado con el anterior. Pase el mouse sobre las barras para ver el detalle.</p></div>
     <div class="row"><label class="f" style="margin:0">Ciclo<select id="fIndCiclo">${ciclos.map((cc, i) => i ? `<option value="${i}" ${i === idx ? 'selected' : ''}>${esc(nombreCiclo(cc))}${i === 5 ? ' (en curso)' : ''}</option>` : '').join('')}</select></label>
-      ${rol.admin || rol.consulta ? `<label class="f" style="margin:0">Incluir<select id="fCobTipo">${[['Sucursal','Solo sucursales'],['TODOS','Sucursales y áreas']].map(([v,t]) => `<option value="${v}" ${fCobTipo === v ? 'selected' : ''}>${t}</option>`).join('')}</select></label>` : ''}
-      ${gs.length > 1 ? `<label class="f" style="margin:0">Grupo<select id="fCobGr"><option value="TODOS">${rol.admin || rol.consulta ? 'Todos los grupos' : 'Todos mis grupos'}</option>${gs.map(g => `<option value="${g.id}" ${fCobGr === g.id ? 'selected' : ''}>${esc(g.nombre)}</option>`).join('')}</select></label>` : ''}
+      ${verTodoCob() ? `<label class="f" style="margin:0">Incluir<select id="fCobTipo">${[['Sucursal','Solo sucursales'],['TODOS','Sucursales y áreas']].map(([v,t]) => `<option value="${v}" ${fCobTipo === v ? 'selected' : ''}>${t}</option>`).join('')}</select></label>` : ''}
+      ${gs.length > 1 ? `<label class="f" style="margin:0">Grupo<select id="fCobGr"><option value="TODOS">${verTodoCob() ? 'Todos los grupos' : 'Todos mis grupos'}</option>${gs.map(g => `<option value="${g.id}" ${fCobGr === g.id ? 'selected' : ''}>${esc(g.nombre)}</option>`).join('')}</select></label>` : ''}
       <button class="btn btn-sm" id="btnExpCob" style="align-self:flex-end">⬇ Excel por sala</button></div></div>
     <div class="ind-grid k4">
       ${kpi('Cobertura', A.cob == null ? '—' : f1c(A.cob) + ' %', deltaCob(A.cob, B.cob, B.c), `${A.dot} de ${A.total} salas dotadas · ${A.pidio} pidieron`)}
