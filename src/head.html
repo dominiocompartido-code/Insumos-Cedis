@@ -510,6 +510,7 @@ main{margin:0;max-width:1240px;width:100%}
       <label class="f">Regional<input id="uRegional" list="dlRegional" maxlength="40" placeholder="SANTA CRUZ"></label>
     </div>
     <label class="f" id="uCorreoWrap" hidden>Usuario de la sala (correo)<input type="email" id="uCorreo" maxlength="120" placeholder="correo@farmaciaschavez.com.bo" autocomplete="off"><span class="sub" style="margin:2px 0 0;font-weight:400">Quien ingrese con este correo solicitará siempre como esta sala. Créelo en Supabase → Authentication → Users. Déjelo vacío si no tiene usuario.</span></label>
+    <label class="f" id="uExtraWrap" hidden>Otros usuarios que también pueden pedir por esta sala (opcional)<input id="uExtra" maxlength="400" placeholder="correo1@farmaciaschavez.com.bo, correo2@…" autocomplete="off"><span class="sub" style="margin:2px 0 0;font-weight:400">Separe los correos con coma. Esas personas podrán elegir esta sala además de la suya.</span></label>
     <label class="f" style="max-width:220px">Fecha de apertura<input type="date" id="uFecha"></label>
     <datalist id="dlRegional"></datalist>
     <p class="sub" id="uAyuda" style="margin:0"></p>

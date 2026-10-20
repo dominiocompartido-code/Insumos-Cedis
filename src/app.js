@@ -300,13 +300,16 @@ document.addEventListener('input', e => {
 });
 
 // ---------- vista: solicitar ----------
-const salaUsuario = () => !rol.admin && !rol.grupos.length && rol.unidad && U[rol.unidad]?.activa ? rol.unidad : null;
+// salas o áreas por las que el usuario puede pedir (la suya y las que le habilitaron como usuario adicional)
+const misSalas = () => rol.admin || rol.grupos.length ? [] : (rol.unidades || (rol.unidad ? [rol.unidad] : [])).filter(id => U[id]?.activa);
+const salaUsuario = () => { const l = misSalas(); if(!l.length) return null; return l.includes(unidadSel) ? unidadSel : l[0]; };
+const selMisSalas = id => misSalas().length > 1 ? `<select id="${id}" style="width:auto;margin-left:6px">${misSalas().map(x => `<option value="${esc(x)}" ${x === salaUsuario() ? 'selected' : ''}>${esc(U[x].nombre)}</option>`).join('')}</select>` : `<strong>${esc(U[salaUsuario()].nombre)}</strong>`;
 const salaEquipo = () => { if(salaUsuario()) return salaUsuario(); if(rol.admin || rol.grupos.length) return null; const id = store.get('fch_sala_equipo'); return id && U[id] && U[id].activa ? id : null; };
 function vSolicitar(){
   const eq = salaEquipo(); if(eq) unidadSel = eq;
   const u = unidadSel && U[unidadSel];
   let h = `<section class="panel"><div class="panel-head"><div><h2>Nueva solicitud de insumos</h2><p class="sub">${eq ? 'Revise las cantidades y envíe.' : 'Elija su sucursal o área, revise las cantidades y envíe.'} Quien aprueba su grupo la confirmará.</p></div></div>
-    ${eq && salaUsuario() ? `<div class="equipo-box"><span>👤 Solicita como <strong>${esc(U[eq].nombre)}</strong></span></div>` : eq ? `<div class="equipo-box"><span>🔒 Este equipo está vinculado a su sala</span><button class="btn btn-sm" id="btnCambiarSala">Cambiar sala</button></div>` : `<label class="f">Sucursal o área${selectorUnidad('selUnidad', unidadSel)}</label>`}`;
+    ${eq && salaUsuario() ? `<div class="equipo-box"><span>👤 Solicita como ${selMisSalas('selMiSala')}</span></div>` : eq ? `<div class="equipo-box"><span>🔒 Este equipo está vinculado a su sala</span><button class="btn btn-sm" id="btnCambiarSala">Cambiar sala</button></div>` : `<label class="f">Sucursal o área${selectorUnidad('selUnidad', unidadSel)}</label>`}`;
   if(u && !rol.admin && !rol.grupos.length) h = bloqueAvisos() + h;
   if(!u){ return lineaCicloMini() + h + `<div class="notice info">Elija su sucursal o área para empezar. Luego agregue los insumos que necesita o cargue su pedido anterior.</div></section>`; }
   const g = G[u.grupo_id];
@@ -444,7 +447,7 @@ function vSeguimiento(){
   if(salaUsuario()) unidadSel = salaUsuario();
   const u = unidadSel && U[unidadSel];
   let h = (u && pedidos.some(p => p.unidad_id === u.id) ? bannerPush() : '') + (u && !rol.admin && !rol.grupos.length ? bloqueAvisos() : '') + `<section class="panel"><div class="panel-head"><div><h2>Seguimiento de solicitudes</h2><p class="sub">Vea en qué paso está cada solicitud y si se ajustó algo al confirmarla.</p></div></div>
-    ${salaUsuario() ? '' : `<label class="f">Sucursal o área${selectorUnidad('segUnidad', unidadSel)}</label>`}`;
+    ${salaUsuario() ? (misSalas().length > 1 ? `<div class="equipo-box"><span>👤 Solicitudes de ${selMisSalas('selMiSalaSeg')}</span></div>` : '') : `<label class="f">Sucursal o área${selectorUnidad('segUnidad', unidadSel)}</label>`}`;
   if(!u) return h + '<div class="notice info">Elija su sucursal o área para ver sus solicitudes.</div></section>';
   const l = pedidos.concat(anuladas).filter(p => p.unidad_id === u.id).sort((a,b) => b.ts - a.ts);
   return h + tabla(segTodas ? l : l.slice(0, 20), ['codigo','enviada','items','estado','avance','anular'], 'Esta unidad todavía no envió solicitudes.') +
@@ -683,15 +686,15 @@ function rolDe(email){
   if(a) return a.rol === 'consulta' ? '👁️ Consulta' + (uS ? ' + 🏪 ' + uS.nombre : '') : '🚚 Logística CEDIS';
   const g = GL.filter(x => (x.aprobador_email || '').toLowerCase() === e);
   if(g.length) return (g.some(x => x.id === 'OFC' || x.id === 'CEDIS') ? '📊 Jefatura · ' : '✅ Aprobador · ') + g.map(x => x.nombre).join(', ');
-  const u = UL.find(x => (x.correo || '') === e);
-  if(u) return '🏪 ' + u.nombre;
+  const us = UL.filter(x => x.activa && ((x.correo || '') === e || (x.correos_extra || []).includes(e)));
+  if(us.length) return '🏪 ' + us.map(x => x.nombre).join(' + ');
   return '';
 }
 function vCuentas(){
   const q = normTxt(fCtaQ).trim();
   // correos que tienen rol en la app pero todavía no tienen cuenta de ingreso
   const conCta = new Set((CUENTAS || []).map(c => c.email));
-  const registrados = [...new Set([...ADMINS.filter(a => a.activo).map(a => a.email), ...GL.map(g => (g.aprobador_email || '').toLowerCase()), ...UL.filter(u => u.activa).map(u => u.correo || '')].filter(Boolean))];
+  const registrados = [...new Set([...ADMINS.filter(a => a.activo).map(a => a.email), ...GL.map(g => (g.aprobador_email || '').toLowerCase()), ...UL.filter(u => u.activa).flatMap(u => [u.correo || '', ...(u.correos_extra || [])])].filter(Boolean))];
   const faltan = CUENTAS === null ? [] : registrados.filter(e => !conCta.has(e)).map(e => ({email:e, sinCuenta:true}));
   const l = (CUENTAS || []).concat(faltan).map(c => ({...c, rol:rolDe(c.email)})).filter(c => !q || normTxt(c.email + ' ' + c.rol).includes(q)).sort((a, b) => (!!a.sinCuenta) - (!!b.sinCuenta) || (!a.rol) - (!b.rol) || a.email.localeCompare(b.email));
   const fd = t => { if(!t) return '—'; const d = new Date(t); return `${pad(d.getDate())}/${pad(d.getMonth() + 1)}/${d.getFullYear()} ${pad(d.getHours())}:${pad(d.getMinutes())}`; };
@@ -857,7 +860,7 @@ function vConfig(){
     <section class="panel${plegCls('salas')}"><div class="panel-head"><div><h2>Sucursales y áreas por grupo ${plegBtn('salas')}</h2><button class="btn btn-primary" data-nueva-unidad="" style="margin-top:6px">+ Nueva sala o área</button><p class="sub">${sin ? `<span class="chip alerta">${sin} sucursales sin supervisora</span> · ` : ''}Cambie el grupo y se guarda al instante. Las salas eliminadas quedan al final y se pueden reactivar.</p></div>
       <div class="row"><input id="fCfgQ" placeholder="Buscar sucursal o código…" value="${esc(fCfgQ)}" style="width:200px">${selGrupo('fCfgGr', fCfgGr)}</div></div>
     <div class="tbl-wrap"><table><thead><tr><th>Sucursal / área</th><th class="num">Cód. sala</th><th class="num">Muelle</th><th>Regional</th><th>Grupo que aprueba</th><th>Enlace directo</th><th class="num">Sala</th></tr></thead><tbody>` +
-    (us.length ? us.map(u => `<tr class="${u.activa ? '' : 'cerrada'}"><td><strong>${esc(u.nombre)}</strong><div class="sub" style="margin:0">${esc(u.tipo)}${u.creada_ts ? ' · abrió ' + fCorta(new Date(u.creada_ts)) + '/' + new Date(u.creada_ts).getFullYear() : ''}${u.activa ? '' : ' · <span class="chip alerta">eliminada</span>'}${u.correo ? `<br><span title="Usuario que ingresa como esta sala">👤 ${esc(u.correo)}</span>` : ''}</div></td><td class="num mono">${esc(u.codigo_sala || '–')}</td><td class="num">${esc(u.muelle || '–')}</td><td>${esc(u.regional || '–')}</td>
+    (us.length ? us.map(u => `<tr class="${u.activa ? '' : 'cerrada'}"><td><strong>${esc(u.nombre)}</strong><div class="sub" style="margin:0">${esc(u.tipo)}${u.creada_ts ? ' · abrió ' + fCorta(new Date(u.creada_ts)) + '/' + new Date(u.creada_ts).getFullYear() : ''}${u.activa ? '' : ' · <span class="chip alerta">eliminada</span>'}${u.correo ? `<br><span title="Usuario que ingresa como esta sala">👤 ${esc(u.correo)}</span>` : ''}${(u.correos_extra || []).length ? `<br><span title="Usuarios adicionales que también pueden pedir por esta sala">➕ ${esc(u.correos_extra.join(', '))}</span>` : ''}</div></td><td class="num mono">${esc(u.codigo_sala || '–')}</td><td class="num">${esc(u.muelle || '–')}</td><td>${esc(u.regional || '–')}</td>
       <td><select data-ug="${esc(u.id)}" id="ug-${esc(u.id)}" aria-label="Grupo de ${esc(u.nombre)}">${GL.map(g => `<option value="${g.id}" ${u.grupo_id === g.id ? 'selected' : ''}>${esc(g.nombre)}</option>`).join('')}</select></td>
       <td class="mono sub" style="font-size:11px;word-break:break-all">?u=${esc(u.id)}</td><td class="num" style="white-space:nowrap">${botonEditar(u)}${botonCerrar(u)}</td></tr>`).join('') : '<tr><td colspan="7" class="empty">Ninguna coincide.</td></tr>') +
     `</tbody></table></div><p class="sub" style="margin:0">El enlace directo abre la página con esa sucursal ya elegida: agregue <span class="mono">?u=CÓDIGO</span> al final de la dirección de la página. <button class="btn btn-sm" id="btnCopiarLink">Copiar lista de enlaces</button></p></section>` + vKit();
@@ -1007,7 +1010,7 @@ $('detBody').addEventListener('click', async e => {
 // ---------- sesión ----------
 async function evaluarSesion(s){
   sesion = s; rol = {admin:false, grupos:[]};
-  if(s){ const {data} = await sb.rpc('mi_rol'); if(data) rol = {admin:!!data.admin, final:!!data.final, consulta:!!data.consulta, grupos:data.grupos || [], unidad:data.unidad || null}; }
+  if(s){ const {data} = await sb.rpc('mi_rol'); if(data) rol = {unidades:data.unidades || null, admin:!!data.admin, final:!!data.final, consulta:!!data.consulta, grupos:data.grupos || [], unidad:data.unidad || null}; }
   $('btnLogin').textContent = s ? 'Salir' : 'Ingresar';
   $('roleChip').textContent = rol.admin ? 'Logística CEDIS' : esConsulta() ? 'Consulta' + (salaUsuario() ? ' · ' + U[salaUsuario()].nombre : '') : esJefatura() ? 'Jefatura · ' + rol.grupos.map(g => G[g]?.aprobador).join(', ') : rol.unidad && U[rol.unidad] && !rol.grupos.length ? U[rol.unidad].nombre : rol.grupos.length ? 'Aprobador · ' + rol.grupos.map(g => G[g]?.aprobador).join(', ') : s ? 'Sin grupo asignado' : EXIGIR ? 'Sin ingresar' : 'Sucursal';
   $('roleChip').classList.toggle('role', rol.admin || !!rol.consulta || rol.grupos.length > 0);
@@ -1285,14 +1288,14 @@ const isoDia = ts => { const d = new Date(ts); return `${d.getFullYear()}-${Stri
 function abrirEditarUnidad(uid){
   const u = U[uid]; if(!u) return; editUid = uid;
   $('uTitulo').textContent = 'Editar ' + u.nombre; $('uGrupoWrap').hidden = true; $('uNombre').value = u.nombre; $('uNombre').disabled = true;
-  $('uCorreoWrap').hidden = !rol.admin; $('uCorreo').value = u.correo || '';
+  $('uCorreoWrap').hidden = !rol.admin; $('uCorreo').value = u.correo || ''; $('uExtraWrap').hidden = !rol.admin; $('uExtra').value = (u.correos_extra || []).join(', ');
   $('uCodigo').value = u.codigo_sala || ''; $('uMuelle').value = u.muelle || ''; $('uRegional').value = u.regional || ''; $('uFecha').value = u.creada_ts ? isoDia(u.creada_ts) : '';
   $('dlRegional').innerHTML = [...new Set(UL.map(x => x.regional).filter(Boolean).concat(['SANTA CRUZ','COCHABAMBA','TARIJA','BENI']))].map(r => `<option value="${esc(r)}">`).join('');
   $('uSoloSuc').hidden = false; $('uAyuda').textContent = 'La fecha de apertura sirve para que la cobertura y las alertas cuenten solo desde que la sala abrió. Déjela vacía si la sala ya existía antes de usar la app.';
   $('uMsg').hidden = true; $('uGuardar').textContent = 'Guardar'; $('mUnidad').hidden = false; $('uCodigo').focus();
 }
 function abrirNuevaUnidad(gid){
-  editUid = null; $('uCorreoWrap').hidden = true; $('uTitulo').textContent = 'Nueva sala o área'; $('uGrupoWrap').hidden = false; $('uNombre').disabled = false; $('uGuardar').textContent = 'Crear'; $('uFecha').value = hoyISO();
+  editUid = null; $('uCorreoWrap').hidden = true; $('uExtraWrap').hidden = true; $('uTitulo').textContent = 'Nueva sala o área'; $('uGrupoWrap').hidden = false; $('uNombre').disabled = false; $('uGuardar').textContent = 'Crear'; $('uFecha').value = hoyISO();
   const gs = gruposCreables(); if(!gs.length){ toast('No tiene un grupo asignado para crear salas.'); return; }
   $('uGrupo').innerHTML = gs.map(g => `<option value="${g.id}" ${g.id === gid ? 'selected' : ''}>${esc(g.nombre)} · ${esc(g.aprobador)}</option>`).join('');
   $('uGrupo').disabled = gs.length === 1;
@@ -1314,6 +1317,9 @@ $('formUnidad').addEventListener('submit', async e => {
     const correo = $('uCorreo').value.trim().toLowerCase();
     if(rol.admin && correo !== (U[editUid]?.correo || '')){ const r = await sb.rpc('guardar_correo_unidad', {p_id:editUid, p_correo:correo});
       if(r.error){ btn.disabled = false; err(r.error.message); return; } }
+    const extra = $('uExtra').value.split(/[\s,;]+/).map(x => x.trim().toLowerCase()).filter(Boolean);
+    if(rol.admin && extra.join(',') !== (U[editUid]?.correos_extra || []).join(',')){ const r2 = await sb.rpc('guardar_correos_extra', {p_id:editUid, p_correos:extra});
+      if(r2.error){ btn.disabled = false; err(r2.error.message); return; } }
     btn.disabled = false;
     $('mUnidad').hidden = true; try{ await cargarBase(); }catch(_){}
     toast(`${U[editUid]?.nombre || 'Sala'} actualizada.`); render(); return;
@@ -1642,3 +1648,5 @@ async function aprobarFinalVarios(btn){
   sel.clear(); toast(`${plural(data ?? ids.length, 'solicitud aprobada', 'solicitudes aprobadas')}.`); cargarPedidos();
 }
 document.addEventListener('click', e => { if(e.target.id === 'btnAprobFinal') aprobarFinalVarios(e.target); });
+
+document.addEventListener('change', e => { if(e.target.id === 'selMiSala' || e.target.id === 'selMiSalaSeg'){ if(e.target.id === 'selMiSala' && borrador.length){ unidadSel = e.target.value; render(); return; } setUnidad(e.target.value); } });
