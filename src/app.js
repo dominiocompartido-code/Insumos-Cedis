@@ -6,6 +6,9 @@ let G = {}, GL = [], U = {}, UL = [], M = {}, ML = [], pedidos = [];
 let listo = false, tab = null, tabPedida = null;
 let EXIGIR = false;
 let unidadSel = null, borrador = [], solicitanteNom = '', esApertura = false, fechaAp = '';
+// nivel nacional: almacenes (Santa Cruz / La Paz)
+let ALMS = [], ALM = 'TODOS', ULall = [], GLall = [], pedAll = [], anuAll = [], P_ALM = {}, fAlmCosto = 'SCZ';
+try{ ALM = localStorage.getItem('fch_alm') || 'TODOS'; fAlmCosto = localStorage.getItem('fch_alm_costo') || 'SCZ'; }catch(e){}
 
 // ---------- utilidades ----------
 const $ = id => document.getElementById(id);
@@ -44,14 +47,31 @@ function errMsg(e){
 }
 function setSync(live, txt){ $('syncDot').classList.toggle('live', live); $('syncTxt').textContent = txt; }
 const grupoDe = p => U[p.unidad_id]?.grupo_id || 'SIN';
+const almDeU = id => U[id]?.almacen || 'SCZ';
+const almNom = id => ALMS.find(a => a.id === id)?.nombre || id;
+const multiAlm = () => ALMS.length > 1;
+const almFijo = () => rol.admin && rol.almacen ? rol.almacen : null;
+const verSelAlm = () => multiAlm() && !almFijo() && (rol.admin || !!rol.consulta || verTablero());
+const almVista = () => almFijo() || (verSelAlm() && ALMS.some(a => a.id === ALM) ? ALM : 'TODOS');
+const almCosto = () => { const a = almVista(); return a !== 'TODOS' ? a : (ALMS.some(x => x.id === fAlmCosto) ? fAlmCosto : 'SCZ'); };
+const enAlm = (u, a = almVista()) => a === 'TODOS' || (u?.almacen || 'SCZ') === a;
+const esNac = () => rol.admin && !rol.almacen;
+const editaAlm = a => rol.admin && (!rol.almacen || rol.almacen === a);
+const tipoG = gid => G[gid]?.tipo || '';
+const matEnAlm = (m, a) => !a || a === 'TODOS' || (m.almacenes || ['SCZ']).includes(a);
+const muellesAlm = a => a === 'TODOS' ? ALMS.some(x => x.muelles) || !ALMS.length : !!ALMS.find(x => x.id === a)?.muelles;
+const selAlmCosto = () => multiAlm() && almVista() === 'TODOS' ? `<label class="f alm-costo">Almacén<select id="fAlmCosto">${ALMS.map(a => `<option value="${esc(a.id)}" ${almCosto() === a.id ? 'selected' : ''}>${esc(a.nombre)}</option>`).join('')}</select></label>` : multiAlm() ? `<span class="chip alm">Almacén ${esc(almNom(almCosto()))}</span>` : '';
+function aplicarAlm(){ const a = almVista();
+  UL = ULall.filter(u => enAlm(u, a)); GL = GLall.filter(g => g.activo !== false && (a === 'TODOS' || !g.almacen || g.almacen === a));
+  pedidos = pedAll.filter(p => enAlm(U[p.unidad_id], a)); anuladas = anuAll.filter(p => enAlm(U[p.unidad_id], a)); P = P_ALM[almCosto()] || {}; }
 const matActivo = m => m && m.activo !== false;
-const puedeCatalogo = () => rol.admin || rol.grupos.some(g => ['OFC','CEDIS','SIN'].includes(g));
+const puedeCatalogo = () => rol.admin || rol.grupos.some(g => ['Oficina central','CEDIS','Sin asignar'].includes(tipoG(g)));
 const puedeAprobar = p => rol.admin || rol.grupos.includes(grupoDe(p));
 const corto = u => { const m = /^SUC-(\d+)$/.exec(u.id); return m ? m[1] : u.nombre.replace(/^SUC[\s.\-]*/i,'').split(/\s+/)[0].slice(0,6); };
 // nombre y U.M. siempre según el maestro actual (si se corrige un material, se ve corregido en todas las solicitudes)
 const vivo = l => Array.isArray(l) ? l.map(i => { const m = M[i.codigo]; return m ? {...i, descripcion:m.descripcion, unidad:m.unidad} : i; }) : l;
 const normP = r => ({...r, ts:T(r.ts), confirmado_ts:T(r.confirmado_ts), entregado_ts:T(r.entregado_ts), anulado_ts:T(r.anulado_ts), tipo:r.tipo || 'Mensual', items:vivo(r.items || []), items_original:vivo(r.items_original), items_entregados:vivo(r.items_entregados)});
-const refrescarNombres = () => { const f = p => ({...p, items:vivo(p.items), items_original:vivo(p.items_original), items_entregados:vivo(p.items_entregados)}); pedidos = pedidos.map(f); anuladas = anuladas.map(f); };
+const refrescarNombres = () => { const f = p => ({...p, items:vivo(p.items), items_original:vivo(p.items_original), items_entregados:vivo(p.items_entregados)}); pedAll = pedAll.map(f); anuAll = anuAll.map(f); aplicarAlm(); };
 let anuladas = [];
 const claves = (() => { try{ return JSON.parse(localStorage.getItem('fch_claves') || '{}'); }catch(e){ return {}; } })();
 const guardarClave = (id, c) => { claves[id] = c; try{ localStorage.setItem('fch_claves', JSON.stringify(claves)); }catch(e){} };
@@ -84,32 +104,35 @@ function bannerPush(){
 let KIT = [], P = {};
 const verPrecios = () => rol.admin || !!rol.consulta || rol.grupos.length > 0;
 let INV = {}, INVD = {}, INV_INFO = null;
-async function cargarInventario(){ INV = {}; INVD = {}; INV_INFO = null; if(!verTablero()) return;
-  try{ const [a, b] = await Promise.all([sb.from('inventario').select('*'), sb.from('inventario_cargas').select('*').order('ts', {ascending:false}).limit(1)]);
-    (a.data || []).forEach(r => { INV[r.codigo] = +r.stock || 0; INVD[r.codigo] = {descripcion:r.descripcion || '', unidad:r.unidad || ''}; }); const l = (b.data || []).slice().sort((x, y) => new Date(y.ts) - new Date(x.ts)); INV_INFO = l[0] || null; }catch(e){} }
-async function cargarPrecios(){ P = {}; if(!verPrecios()) return; try{ const {data} = await sb.from('precios').select('*'); (data || []).forEach(r => P[r.codigo] = +r.precio); }catch(e){} }
+async function cargarInventario(){ INV = {}; INVD = {}; INV_INFO = null; if(!verTablero()) return; const al = almCosto();
+  try{ const [a, b] = await Promise.all([sb.from('inventario_alm').select('*').eq('almacen', al), sb.from('inventario_cargas').select('*').order('ts', {ascending:false}).limit(30)]);
+    (a.data || []).filter(r => (r.almacen || 'SCZ') === al).forEach(r => { INV[r.codigo] = +r.stock || 0; INVD[r.codigo] = {descripcion:r.descripcion || '', unidad:r.unidad || ''}; }); const l = (b.data || []).filter(r => (r.almacen || 'SCZ') === al).sort((x, y) => new Date(y.ts) - new Date(x.ts)); INV_INFO = l[0] || null; }catch(e){} }
+async function cargarPrecios(){ P = {}; P_ALM = {}; if(!verPrecios()) return; try{ const {data} = await sb.from('precios_alm').select('*'); (data || []).forEach(r => (P_ALM[r.almacen || 'SCZ'] ||= {})[r.codigo] = +r.precio); }catch(e){} P = P_ALM[almCosto()] || {}; }
 const fBs = n => 'Bs ' + (+n || 0).toLocaleString('es-BO', {minimumFractionDigits:2, maximumFractionDigits:2});
-const precioDe = (p, cod) => { const v = p && p.precios && p.precios[cod] != null ? +p.precios[cod] : P[cod]; return v != null && !isNaN(v) ? v : null; };
+const precioDe = (p, cod) => { const v = p && p.precios && p.precios[cod] != null ? +p.precios[cod] : (p ? P_ALM[almDeU(p.unidad_id)] || {} : P)[cod]; return v != null && !isNaN(v) ? v : null; };
 function valorPedido(p, entregado){ const its = entregado && p.items_entregados ? p.items_entregados : p.items; let total = 0, sin = 0; its.forEach(i => { const v = precioDe(p, i.codigo); if(v == null){ if(+i.cantidad) sin++; } else total += v * (+i.cantidad || 0); }); return {total, sin}; }
 async function cargarBase(){
   const kitP = sb.from('config').select('*').then(r => { const k = (r.data || []).find(x => x.clave === 'kit_apertura'); KIT = k ? k.valor || [] : []; EXIGIR = (r.data || []).some(x => x.clave === 'exigir_ingreso' && x.valor === true); }, () => {});
-  const [g, u, m] = await Promise.all([
-    sb.from('grupos').select(rol.admin ? '*' : 'id,nombre,tipo,aprobador,orden').order('orden'),
+  const [g, u, m, al] = await Promise.all([
+    sb.from('grupos').select(rol.admin ? '*' : 'id,nombre,tipo,aprobador,orden,activo,almacen').order('orden'),
     sb.from('unidades').select('*'),
     sb.from('maestro').select('*').order('descripcion'),
+    sb.from('almacenes').select('*').order('orden').then(r => r, () => ({data:[]})),
   ]);
   await kitP;
   for(const r of [g,u,m]) if(r.error) throw r.error;
-  GL = g.data; G = Object.fromEntries(GL.map(x => [x.id, x]));
-  UL = u.data.sort((a,b) => ordU(a) - ordU(b) || a.nombre.localeCompare(b.nombre,'es')); U = Object.fromEntries(UL.map(x => [x.id, x]));
+  ALMS = (al && !al.error && al.data) || [];
+  GLall = g.data; G = Object.fromEntries(GLall.map(x => [x.id, x]));
+  ULall = u.data.sort((a,b) => ordU(a) - ordU(b) || a.nombre.localeCompare(b.nombre,'es')); U = Object.fromEntries(ULall.map(x => [x.id, x]));
+  aplicarAlm();
   ML = m.data; M = Object.fromEntries(ML.map(x => [x.codigo, x]));
-  if(typeof pedidos !== 'undefined' && pedidos.length) refrescarNombres();
+  if(pedAll.length) refrescarNombres();
 }
 function ordU(u){ const m = /^SUC-(\d+)$/.exec(u.id); return u.tipo !== 'Sucursal' ? 100000 + (u.tipo === 'CEDIS' ? 1000 : 0) : m ? +m[1] : 5000; }
 async function cargarPedidos(){
   const {data, error} = await sb.from('pedidos').select('*').order('ts', {ascending:false}).limit(3000);
   if(error){ setSync(false, 'Sin conexión'); return; }
-  const todos = data.map(normP); pedidos = todos.filter(p => p.estado !== 'Anulada'); anuladas = todos.filter(p => p.estado === 'Anulada'); setSync(true, 'En vivo'); renderSuave();
+  const todos = data.map(normP); pedAll = todos.filter(p => p.estado !== 'Anulada'); anuAll = todos.filter(p => p.estado === 'Anulada'); aplicarAlm(); setSync(true, 'En vivo'); renderSuave();
 }
 let recarga; const programar = fn => { clearTimeout(recarga); recarga = setTimeout(fn, 300); };
 
@@ -139,7 +162,7 @@ function actualizarInsignia(c){
 function contadores(){
   const c = {};
   c.bandeja = pedidos.filter(p => p.estado === 'Enviada' && puedeAprobar(p)).length;
-  if(rol.admin) c.materiales = NUEVOS.filter(n => n.estado === 'Pendiente de revisión').length;
+  if(esNac()) c.materiales = NUEVOS.filter(n => n.estado === 'Pendiente de revisión').length;
   if(esFinal()) c.final = pedidos.filter(p => p.estado === 'Confirmada').length;
   if(rol.admin){ c.entregar = pedidos.filter(p => p.estado === 'Aprobada').length; c.tablero = c.bandeja + (c.final || 0) + c.entregar; }
   else if(verTablero()){ c.entregar = pedidos.filter(p => p.estado === 'Aprobada').length; c.tablero = c.bandeja + (c.final || 0); }
@@ -180,6 +203,7 @@ function render(){
       (subAbierto ? sub.map(([sid, sl], k) => `<button role="tab" class="sub${k === 0 ? ' sub-ini' : ''}${k === sub.length - 1 ? ' sub-fin' : ''}" data-tab="${sid}" aria-selected="${tab === sid}">${sid === 'tablero' ? 'Resumen' : sl}${sid !== 'tablero' ? badge(sid, c[sid]) : ''}</button>`).join('') : '')
     : `<button role="tab" data-tab="${id}" aria-selected="${tab === id}"><span class="ico">${ICO[id] || '•'}</span>${l}${badge(id, c[id])}</button>`).join('');
   $('subtabs').hidden = true; $('subtabs').innerHTML = '';
+  const sa = $('selAlm'); if(sa){ sa.hidden = !verSelAlm(); if(verSelAlm()) sa.innerHTML = [['TODOS','🇧🇴 Nacional'], ...ALMS.map(a => [a.id, '🏬 ' + a.nombre])].map(([v, t]) => `<option value="${esc(v)}" ${almVista() === v ? 'selected' : ''}>${esc(t)}</option>`).join(''); }
   const bloqueo = vBloqueo(); if(bloqueo){ $('tabs').innerHTML = ''; $('main').innerHTML = bloqueo; actualizarCampana(); return; }
   const V = {final:vFinal, solicitar:vSolicitar, seguimiento:vSeguimiento, materiales:vMateriales, bandeja:vBandeja, grupo:vGrupo, tablero:vTablero, entregar:vEntregar, preparacion:vPreparacion, cobertura:vCobertura, todos:vTodos, config:vConfig, inventario:vInventario};
   const foco = document.activeElement?.id, pos = document.activeElement?.selectionStart;
@@ -279,7 +303,9 @@ document.addEventListener('change', e => {
   if(e.target.dataset.cat){ cambiarCategoria(e.target.dataset.cat, e.target.value, e.target); }
   if(e.target.dataset.precio){ const cod = e.target.dataset.precio, raw = e.target.value.trim(), v = +raw;
     if(raw === '' || isNaN(v) || v < 0){ toast('Ingrese un precio válido (0 o más).'); e.target.value = P[cod] != null ? +P[cod].toFixed(2) : ''; return; }
-    sb.rpc('guardar_precio', {p_codigo:cod, p_precio:v}).then(({error}) => { if(error){ toast(errMsg(error)); return; } if(v == null) delete P[cod]; else P[cod] = v; toast(`${M[cod]?.descripcion}: ${v == null ? 'sin precio' : fBs(v)}.`); }); }
+    const al = almCosto(); sb.rpc('guardar_precio_alm', {p_almacen:al, p_codigo:cod, p_precio:v}).then(({error}) => { if(error){ toast(errMsg(error)); return; } (P_ALM[al] ||= {})[cod] = v; P = P_ALM[almCosto()] || {}; toast(`${M[cod]?.descripcion}: ${fBs(v)}${multiAlm() ? ' en ' + almNom(al) : ''}.`); }); }
+  if(id === 'fAlmCosto'){ fAlmCosto = e.target.value; store.set('fch_alm_costo', fAlmCosto); P = P_ALM[almCosto()] || {}; cargarInventario().then(render); render(); }
+  if(id === 'selAlm'){ ALM = e.target.value; store.set('fch_alm', ALM); sel.clear(); aplicarAlm(); cargarInventario().then(render); render(); }
   if(id === 'fCobTipo'){ fCobTipo = e.target.value; render(); }
   if(id === 'fCobGr'){ fCobGr = e.target.value; render(); }
   if(id === 'fCobSolo'){ fCobSolo = e.target.checked; render(); }
@@ -335,9 +361,9 @@ const txtAbre = d => { if(!d) return 'sin fecha de inauguración'; const n = dia
 const ordenApert = (a,b) => ((b.tipo === 'Apertura') - (a.tipo === 'Apertura')) || (a.tipo === 'Apertura' ? String(a.fecha_apertura || '9999').localeCompare(String(b.fecha_apertura || '9999')) : 0);
 const salaNueva = u => u && u.creada_ts && (Date.now() - Date.parse(u.creada_ts)) < 120 * 864e5 && !pedidos.some(p => p.unidad_id === u.id && p.tipo === 'Apertura' && p.estado !== 'Rechazada');
 // el kit de apertura solo lo ofrece la supervisora de la sala
-const puedeKit = u => KIT.length && u && u.tipo === 'Sucursal' && !['OFC','CEDIS','SIN'].includes(u.grupo_id) && rol.grupos.includes(u.grupo_id);
+const puedeKit = u => KIT.length && u && u.tipo === 'Sucursal' && tipoG(u.grupo_id) === 'Sucursales' && rol.grupos.includes(u.grupo_id);
 function cargarKit(){
-  const l = KIT.map(k => M[k.codigo] && matActivo(M[k.codigo]) ? {codigo:k.codigo, descripcion:M[k.codigo].descripcion, unidad:M[k.codigo].unidad, categoria:M[k.codigo].categoria, cantidad:+k.cantidad} : null).filter(Boolean);
+  const l = KIT.map(k => M[k.codigo] && matActivo(M[k.codigo]) && matEnAlm(M[k.codigo], unidadSel ? almDeU(unidadSel) : null) ? {codigo:k.codigo, descripcion:M[k.codigo].descripcion, unidad:M[k.codigo].unidad, categoria:M[k.codigo].categoria, cantidad:+k.cantidad} : null).filter(Boolean);
   borrador = l; esApertura = true; pintaBorrador(); render(); toast(`Se cargó el kit de apertura (${plural(l.length, 'insumo', 'insumos')}). Ajuste lo que haga falta antes de enviar.`);
 }
 function cargarAnterior(){
@@ -362,7 +388,8 @@ function pintaResumen(){
 }
 function buscarInsumo(q){
   const box = $('nRes'); q = q.toLowerCase().trim(); if(!q){ box.hidden = true; return; }
-  const f = ML.filter(a => matActivo(a) && (a.codigo.toLowerCase().includes(q) || a.descripcion.toLowerCase().includes(q))).slice(0, 30);
+  const alS = unidadSel ? almDeU(unidadSel) : null;
+  const f = ML.filter(a => matActivo(a) && matEnAlm(a, alS) && (a.codigo.toLowerCase().includes(q) || a.descripcion.toLowerCase().includes(q))).slice(0, 30);
   box.innerHTML = f.length ? f.map(a => `<button type="button" data-add="${esc(a.codigo)}"><span><span class="mono" style="color:var(--brand);font-weight:600">${esc(a.codigo)}</span> ${esc(a.descripcion)}</span><span class="chip">${esc(a.unidad)}</span></button>`).join('')
     : '<div class="none">No está en la lista de materiales. <button type="button" class="btn btn-sm" data-pedir-nuevo="1">Solicitar material nuevo</button></div>';
   box.hidden = false;
@@ -452,7 +479,7 @@ async function enviar(btn){
     if(!rol.admin && !rol.grupos.length) activarPush(true, data.unidad_id);
 
     store.set('fch_nombre', nombre);
-    pedidos.unshift(normP(data));
+    { const np = normP(data); pedAll.unshift(np); pedidos.unshift(np); }
     toast(`Solicitud ${data.codigo} enviada a ${G[U[unidadSel].grupo_id]?.aprobador || 'logística'}.`);
     borrador = []; esApertura = false; fechaAp = ''; tab = 'seguimiento'; render();
   }catch(err){ toast(errMsg(err)); btn.disabled = false; btn.textContent = 'Enviar solicitud'; }
@@ -464,7 +491,7 @@ async function anularPedido(id, btn){
   btn.disabled = true;
   const {error} = await sb.rpc('anular_pedido', {p_id:id, p_clave:claves[id] || null});
   if(error){ btn.disabled = false; toast(errMsg(error)); return; }
-  p.estado = 'Anulada'; p.anulado_ts = Date.now(); pedidos = pedidos.filter(x => x.id !== id); anuladas.unshift(p);
+  p.estado = 'Anulada'; p.anulado_ts = Date.now(); pedidos = pedidos.filter(x => x.id !== id); pedAll = pedAll.filter(x => x.id !== id); anuladas.unshift(p); anuAll.unshift(p);
   toast(`${p.codigo} anulada.`); render(); programar(cargarPedidos);
 }
 // ---------- vista: seguimiento ----------
@@ -595,7 +622,7 @@ function vTablero(){
     Object.keys(tot).forEach(e => tot[e] += c(e));
     const pend = l.filter(p => p.estado === 'Enviada'); const vieja = pend.length ? Math.max(...pend.map(p => horas(Date.now() - p.ts))) : 0;
     const n = v => v ? v : '<span class="sub">0</span>';
-    return `<tr><td><span class="gtag" data-g="${esc(g.id)}">${esc(g.aprobador)}</span>${g.aprobador_email || g.id === 'SIN' ? '' : ' <span class="chip alerta" title="Configure su correo para que pueda ingresar">sin correo</span>'}</td>
+    return `<tr><td><span class="gtag" data-g="${esc(g.id)}">${esc(g.aprobador)}</span>${g.aprobador_email || g.tipo === 'Sin asignar' || /^logística/i.test(g.aprobador || '') ? '' : ' <span class="chip alerta" title="Configure su correo para que pueda ingresar">sin correo</span>'}</td>
       <td class="num">${c('Enviada') ? `<b>${c('Enviada')}</b>` : n(0)}</td><td class="num">${n(c('Confirmada'))}</td><td class="num">${n(c('Entregada'))}</td><td class="num">${n(c('Rechazada'))}</td><td class="num"><b>${l.length}</b></td>${verPrecios() ? `<td class="num" style="white-space:nowrap">${fBs(l.filter(p => cicloDe(p.ts) === cicloActivo() && (p.estado === 'Confirmada' || p.estado === 'Aprobada' || p.estado === 'Entregada')).reduce((a,p) => a + valorPedido(p, p.estado === 'Entregada').total, 0))}</td>` : ''}
       <td class="num">${pend.length ? (vieja > 48 ? `<span class="chip alerta">${fDias(vieja)}</span>` : fDias(vieja)) : '<span class="sub">–</span>'}</td></tr>`;
   }).join('');
@@ -621,7 +648,7 @@ let fPrep = 'TODOS', fPrepCiclo = null, fPrepAlc = 'todo';
 const mesHoy = () => { const d = hoy(); return d.getFullYear() * 100 + d.getMonth() + 1; };
 const mesConf = p => { if(!p.confirmado_ts) return 0; const d = new Date(p.confirmado_ts); return d.getFullYear() * 100 + d.getMonth() + 1; };
 const enMesPrep = p => p.estado === 'Aprobada' && mesConf(p) === (fPrepCiclo || mesHoy());
-const MUELLES = ['DESP-01','DESP-02','DESP-03','DESP-04','DESP-05','SIN'];
+const MUELLES_ALL = ['DESP-01','DESP-02','DESP-03','DESP-04','DESP-05','SIN'];
 function datosPrep(){
   fPrepCiclo ||= mesHoy();
   const l = pedidos.filter(p => enMesPrep(p) && (fPrep === 'TODOS' || grupoDe(p) === fPrep));
@@ -629,7 +656,7 @@ function datosPrep(){
   return {l, filas:Object.values(m).sort((a,b) => a.descripcion.localeCompare(b.descripcion,'es'))};
 }
 function vPreparacion(){
-  const {l, filas} = datosPrep();
+  const {l, filas} = datosPrep(), MUELLES = muellesAlm(almVista()) ? MUELLES_ALL : [];
   const tot = Object.fromEntries(MUELLES.map(mu => [mu, filas.reduce((a,f) => a + (f.por[mu]||0), 0)]));
   const c = fPrepCiclo, enAlc = p => fPrepAlc === 'todo' || U[p.unidad_id]?.tipo === 'Sucursal';
   const aprob = pedidos.filter(p => enMesPrep(p) && enAlc(p)), pend = pedidos.filter(p => p.estado === 'Enviada' && enAlc(p));
@@ -639,7 +666,7 @@ function vPreparacion(){
       <label class="f">Incluir<select id="fPrepAlc"><option value="sucursales" ${fPrepAlc === 'sucursales' ? 'selected' : ''}>Solo sucursales</option><option value="todo" ${fPrepAlc === 'todo' ? 'selected' : ''}>Sucursales, oficina central y CEDIS</option></select></label></div>
     <div class="resumen-rep"><span class="chip Aprobada">${plural(aprob.length, 'aprobada por entregar', 'aprobadas por entregar')} · ${plural(salas, 'sala o área', 'salas y áreas')}</span>${pend.length ? `<span class="chip Enviada">${plural(pend.length, 'por confirmar', 'por confirmar')}</span>` : '<span class="chip Entregada">todo confirmado</span>'}${falt ? `<span class="chip alerta">${plural(falt, 'sin solicitud', 'sin solicitud')}</span>` : ''}</div>
     <div class="row right"><button class="btn btn-primary btn-lg" id="btnReporte" ${aprob.length ? '' : 'disabled'}>Generar reporte de dotación (Excel)</button></div></section>
-  <section class="panel"><div class="panel-head"><div><h2>Preparación por muelle</h2><p class="sub">Confirmado en ${esc(nombreCiclo(c).toLowerCase())} y aún no entregado: ${plural(l.length, 'solicitud', 'solicitudes')}.</p></div>
+  <section class="panel"><div class="panel-head"><div><h2>Preparación${MUELLES.length ? ' por muelle' : ''}</h2><p class="sub">Confirmado en ${esc(nombreCiclo(c).toLowerCase())} y aún no entregado: ${plural(l.length, 'solicitud', 'solicitudes')}.</p></div>
     <div class="row">${selGrupo('fPrep', fPrep)}</div></div>
     <div class="tbl-wrap"><table><thead><tr><th>Código</th><th>Insumo</th><th class="num">U.M.</th><th class="num col-total">Total</th>${MUELLES.map(m => `<th class="num">${m === 'SIN' ? 'Sin muelle' : m}</th>`).join('')}<th class="num" title="Cuántas salas o áreas pidieron este insumo">N° salas</th>${verPrecios() ? '<th class="num">Valor</th>' : ''}</tr></thead><tbody>` +
     (filas.length ? filas.map(f => `<tr><td class="code">${esc(f.codigo)}</td><td>${esc(f.descripcion)}</td><td class="num">${esc(f.unidad)}</td><td class="num col-total"><strong>${f.total}</strong></td>${MUELLES.map(m => f.por[m] ? `<td class="num">${f.por[m]}</td>` : '<td class="num zero">–</td>').join('')}<td class="num">${f.unidades.size}</td>${verPrecios() ? `<td class="num" style="white-space:nowrap">${P[f.codigo] != null ? fBs(P[f.codigo] * f.total) : '<span class="sub">sin precio</span>'}</td>` : ''}</tr>`).join('') +
@@ -666,19 +693,19 @@ document.addEventListener('click', e => { const b = e.target.closest?.('[data-pl
   const sec = b.closest('section'); sec.classList.toggle('plegado', pleg[k]); b.setAttribute('aria-expanded', !pleg[k]); b.title = pleg[k] ? 'Mostrar' : 'Ocultar'; });
 // ---------- roles y permisos ----------
 let ADMINS = [];
-async function cargarAdmins(){ try{ const {data} = await sb.rpc('listar_roles'); ADMINS = (data || []).map(a => ({...a, rol:a.rol || 'logistica'})); }catch(e){ ADMINS = []; } }
+async function cargarAdmins(){ try{ const {data} = await sb.rpc('listar_roles_alm'); ADMINS = (data || []).map(a => ({...a, rol:a.rol || 'logistica'})); }catch(e){ ADMINS = []; } }
 function vRoles(){
-  const jef = GL.filter(g => g.id === 'OFC' || g.id === 'CEDIS'), sup = GL.filter(g => g.id !== 'OFC' && g.id !== 'CEDIS' && g.id !== 'SIN');
+  const jef = GL.filter(g => (g.tipo === 'Oficina central' || g.tipo === 'CEDIS') && !/^logística/i.test(g.aprobador || '')), sup = GL.filter(g => g.tipo === 'Sucursales');
   const persona = (n, e) => `<span class="rol-p"><strong>${esc(n || '—')}</strong>${e ? `<span class="sub">${esc(e)}</span>${sinCuenta(e)}` : '<span class="chip alerta">sin correo</span>'}</span>`;
   const act = UL.filter(u => u.activa), conU = act.filter(u => u.correo).length;
   const fila = (ico, nombre, permisos, quien) => `<tr><td class="rol-n"><span class="rol-ico">${ico}</span><strong>${nombre}</strong></td><td><ul class="rol-perm">${permisos.map(x => `<li>${x}</li>`).join('')}</ul></td><td>${quien}</td></tr>`;
   const adm = ADMINS.filter(a => a.activo && a.rol === 'logistica'), cons = ADMINS.filter(a => a.activo && a.rol === 'consulta');
-  const chipP = (a, r) => `<span class="rol-p"><strong>${esc(a.nombre || a.email.split('@')[0])}</strong><span class="sub">${esc(a.email)}</span>${r === 'consulta' && UL.some(u => u.correo === a.email) ? `<span class="sub">🏪 pide para ${esc(UL.find(u => u.correo === a.email).nombre)}</span>` : ''}${sinCuenta(a.email)}${a.email !== (sesion?.user?.email || '').toLowerCase() ? `<button class="x-mini" data-quitar-rol="${esc(a.email)}" data-r="${r}" title="Quitar rol">✕</button>` : ''}</span>`;
-  const addP = r => `<div class="row" style="margin-top:6px;gap:6px"><input id="nuevo-${r}" type="email" placeholder="correo@farmaciaschavez.com.bo" style="max-width:240px"><button class="btn btn-sm" data-add-rol="${r}">+ Agregar</button></div>`;
+  const chipP = (a, r) => `<span class="rol-p"><strong>${esc(a.nombre || a.email.split('@')[0])}</strong><span class="sub">${esc(a.email)}</span>${r === 'logistica' && multiAlm() ? `<span class="chip alm">${a.almacen ? esc(almNom(a.almacen)) : 'Nacional'}</span>` : ''}${r === 'consulta' && UL.some(u => u.correo === a.email) ? `<span class="sub">🏪 pide para ${esc(UL.find(u => u.correo === a.email).nombre)}</span>` : ''}${sinCuenta(a.email)}${a.email !== (sesion?.user?.email || '').toLowerCase() ? `<button class="x-mini" data-quitar-rol="${esc(a.email)}" data-r="${r}" title="Quitar rol">✕</button>` : ''}</span>`;
+  const addP = r => `<div class="row" style="margin-top:6px;gap:6px"><input id="nuevo-${r}" type="email" placeholder="correo@farmaciaschavez.com.bo" style="max-width:240px">${r === 'logistica' && multiAlm() ? `<select id="nuevo-alm" style="width:auto"><option value="">Nacional (todo)</option>${ALMS.map(a => `<option value="${esc(a.id)}">Solo ${esc(a.nombre)}</option>`).join('')}</select>` : ''}<button class="btn btn-sm" data-add-rol="${r}">+ Agregar</button></div>`;
   if(CUENTAS === null && !vRoles._pidiendo){ vRoles._pidiendo = true; cargarCuentas().then(() => { vRoles._pidiendo = false; if(tab === 'config') render(); }); }
   return `<section class="panel${plegCls('roles')}"><div class="panel-head"><div><h2>Roles y permisos ${plegBtn('roles')}</h2><p class="sub">Qué puede hacer cada rol y quién lo tiene. El rol se asigna por el correo con el que la persona ingresa.</p></div><div class="row"><button class="btn btn-primary" id="btnCrearUsuario">+ Crear usuario</button></div></div>
     <div class="tbl-wrap"><table class="roles"><thead><tr><th>Rol</th><th>Puede</th><th>Quiénes</th></tr></thead><tbody>
-    ${fila('🚚', 'Logística CEDIS', ['Todo lo de Jefatura', 'Marcar entregas, N° de traspaso y entregas parciales', 'Cargar inventario y editar costos y proveedores', 'Configuración: salas, aprobadores, usuarios y kit'],
+    ${fila('🚚', multiAlm() ? 'Logística' : 'Logística CEDIS', [...(multiAlm() ? ['Nacional: todo, en ambos almacenes. De un almacén: solo sus salas, entregas, inventario y costos'] : []), 'Todo lo de Jefatura', 'Marcar entregas, N° de traspaso y entregas parciales', 'Cargar inventario y editar costos y proveedores', 'Configuración: salas, aprobadores, usuarios y kit'],
       adm.map(a => chipP(a, 'logistica')).join('') + addP('logistica'))}
     ${fila('👁️', 'Consulta', ['Ver todo: Tablero, preparación, por entregar, Inventario, Cobertura de todas las salas, Todos y costos', 'Descargar reportes y el Excel de compra', 'No confirma, no entrega y no edita nada', 'Si se le asigna una sala, también puede pedir para esa sala'], cons.map(a => chipP(a, 'consulta')).join('') + addP('consulta'))}
     ${fila('📊', 'Jefatura', ['Confirmar o rechazar las solicitudes de su grupo', 'Ver Tablero completo: preparación y por entregar (solo consulta)', 'Ver Inventario, necesidad de compra, Todos y costos', 'Crear y editar materiales'], jef.map(g => persona(g.aprobador + ' · ' + g.nombre, g.aprobador_email)).join(''))}
@@ -689,19 +716,20 @@ function vRoles(){
     <p class="sub" style="margin:0">Con <strong>+ Crear usuario</strong> se crea la cuenta (ya confirmada) y se le asigna el rol en un solo paso. Jefatura y supervisoras también se editan en <strong>Aprobadores</strong>; los usuarios de sala, en <strong>Usuarios de salas y áreas</strong>.</p></section>` + vCuentas();
 }
 const NOM_ROL = {logistica:'Logística CEDIS', consulta:'Consulta'};
-async function cambiarAdmin(email, activo, btn, r = 'logistica'){
+async function cambiarAdmin(email, activo, btn, r = 'logistica', alm){
   if(!activo && !await confirmar(`¿Quitar el rol de ${NOM_ROL[r]} a ${email}?`, {titulo:'Quitar rol', si:'Sí, quitar', tono:'btn-danger'})) return;
   const otro = ADMINS.find(a => a.email === email && a.activo && a.rol !== r);
   if(activo && otro && !await confirmar(`${email} hoy tiene el rol ${NOM_ROL[otro.rol]}. ¿Cambiarlo a ${NOM_ROL[r]}?`, {titulo:'Cambiar rol', si:'Sí, cambiar'})) return;
   if(btn) btn.disabled = true;
-  const {error} = await sb.rpc('guardar_rol', {p_email:email, p_nombre:null, p_activo:activo, p_rol:r});
+  const prev = ADMINS.find(a => a.email === email);
+  const {error} = await sb.rpc('guardar_rol_alm', {p_email:email, p_nombre:null, p_activo:activo, p_rol:r, p_almacen:alm !== undefined ? alm || null : prev?.almacen || null});
   if(btn) btn.disabled = false;
   if(error){ toast(errMsg(error)); return; }
   await cargarAdmins(); toast(activo ? `${email} ahora tiene el rol ${NOM_ROL[r]}.` : `${email} ya no tiene el rol ${NOM_ROL[r]}.`); render();
 }
 document.addEventListener('click', e => {
   const t = e.target;
-  const ad = t.closest?.('[data-add-rol]'); if(ad){ const r = ad.dataset.addRol, v = ($('nuevo-' + r).value || '').trim().toLowerCase(); if(!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(v)){ toast('Escriba un correo válido.'); return; } cambiarAdmin(v, true, ad, r); }
+  const ad = t.closest?.('[data-add-rol]'); if(ad){ const r = ad.dataset.addRol, v = ($('nuevo-' + r).value || '').trim().toLowerCase(); if(!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(v)){ toast('Escriba un correo válido.'); return; } cambiarAdmin(v, true, ad, r, r === 'logistica' ? ($('nuevo-alm')?.value || '') : ''); }
   const q = t.closest?.('[data-quitar-rol]'); if(q) cambiarAdmin(q.dataset.quitarRol, false, q, q.dataset.r);
 });
 
@@ -712,9 +740,9 @@ const sinCuenta = e => CUENTAS && e && !CUENTAS.some(c => c.email === String(e).
 function rolDe(email){
   const e = String(email || '').toLowerCase(), a = ADMINS.find(x => x.activo && x.email === e);
   const uS = UL.find(x => (x.correo || '') === e);
-  if(a) return a.rol === 'consulta' ? '👁️ Consulta' + (uS ? ' + 🏪 ' + uS.nombre : '') : '🚚 Logística CEDIS';
+  if(a) return a.rol === 'consulta' ? '👁️ Consulta' + (uS ? ' + 🏪 ' + uS.nombre : '') : '🚚 Logística' + (a.almacen ? ' ' + almNom(a.almacen) : multiAlm() ? ' nacional' : ' CEDIS');
   const g = GL.filter(x => (x.aprobador_email || '').toLowerCase() === e);
-  if(g.length) return (g.some(x => x.id === 'OFC' || x.id === 'CEDIS') ? '📊 Jefatura · ' : '✅ Aprobador · ') + g.map(x => x.nombre).join(', ');
+  if(g.length) return (g.some(x => x.tipo === 'Oficina central' || x.tipo === 'CEDIS') ? '📊 Jefatura · ' : '✅ Aprobador · ') + g.map(x => x.nombre).join(', ');
   const us = UL.filter(x => x.activa && ((x.correo || '') === e || (x.correos_extra || []).includes(e)));
   if(us.length) return '🏪 ' + us.map(x => x.nombre).join(' + ');
   return '';
@@ -879,20 +907,21 @@ document.addEventListener('change', e => { if(e.target.id === 'fileCorreos' && e
 function vConfig(){
   const q = fCfgQ.toLowerCase();
   const us = UL.filter(u => (fCfgGr === 'TODOS' || u.grupo_id === fCfgGr) && (!q || u.nombre.toLowerCase().includes(q) || (u.codigo_sala || '').includes(q))).sort((a,b) => (b.activa - a.activa));
-  const sin = UL.filter(u => u.grupo_id === 'SIN').length;
-  return vRoles() + vIngreso() + `<section class="panel${plegCls('aprob')}"><div class="panel-head"><div><h2>Aprobadores ${plegBtn('aprob')}</h2><p class="sub">Cada aprobador ingresa con el correo que figure aquí. Mientras no tenga correo, sus solicitudes las puede confirmar logística.</p></div></div>
+  const sin = UL.filter(u => u.activa && tipoG(u.grupo_id) === 'Sin asignar' && u.tipo === 'Sucursal').length, conMue = muellesAlm(almVista()), conAlm = multiAlm() && almVista() === 'TODOS';
+  const gsU = u => GLall.filter(g => (g.activo !== false || g.id === u.grupo_id) && (!g.almacen || g.almacen === (u.almacen || 'SCZ')));
+  return (esNac() ? vRoles() + vIngreso() : '') + `<section class="panel${plegCls('aprob')}"><div class="panel-head"><div><h2>Aprobadores ${plegBtn('aprob')}</h2><p class="sub">Cada aprobador ingresa con el correo que figure aquí. Mientras no tenga correo, sus solicitudes las puede confirmar logística.</p></div></div>
     <div class="tbl-wrap"><table><thead><tr><th>Grupo</th><th>Nombre del aprobador</th><th>Correo para ingresar</th><th class="num">Unidades</th><th></th></tr></thead><tbody>` +
-    GL.map(g => `<tr><td><strong class="gtag" data-g="${esc(g.id)}">${esc(g.nombre)}</strong><div class="sub" style="margin:0">${esc(g.tipo)}</div></td>
+    GL.filter(g => esNac() || g.almacen === rol.almacen).map(g => `<tr><td><strong class="gtag" data-g="${esc(g.id)}">${esc(g.nombre)}</strong><div class="sub" style="margin:0">${esc(g.tipo)}${conAlm ? ' · ' + (g.almacen ? esc(almNom(g.almacen)) : 'Nacional') : ''}</div></td>
       <td><input id="cfgN-${g.id}" value="${esc(g.aprobador)}" maxlength="80"></td><td><input type="email" id="cfgE-${g.id}" value="${esc(g.aprobador_email || '')}" placeholder="correo@farmaciachavez.com.bo"></td>
       <td class="num">${UL.filter(u => u.grupo_id === g.id).length}</td><td><button class="btn btn-sm btn-primary" data-cfg-save="${g.id}">Guardar</button></td></tr>`).join('') +
     `</tbody></table></div></section>
     <section class="panel${plegCls('salas')}"><div class="panel-head"><div><h2>Sucursales y áreas por grupo ${plegBtn('salas')}</h2><button class="btn btn-primary" data-nueva-unidad="" style="margin-top:6px">+ Nueva sala o área</button><p class="sub">${sin ? `<span class="chip alerta">${sin} sucursales sin supervisora</span> · ` : ''}Cambie el grupo y se guarda al instante. Las salas eliminadas quedan al final y se pueden reactivar.</p></div>
       <div class="row"><input id="fCfgQ" placeholder="Buscar sucursal o código…" value="${esc(fCfgQ)}" style="width:200px">${selGrupo('fCfgGr', fCfgGr)}</div></div>
-    <div class="tbl-wrap"><table><thead><tr><th>Sucursal / área</th><th class="num">Cód. sala</th><th class="num">Muelle</th><th>Regional</th><th>Grupo que aprueba</th><th>Enlace directo</th><th class="num">Sala</th></tr></thead><tbody>` +
-    (us.length ? us.map(u => `<tr class="${u.activa ? '' : 'cerrada'}"><td><strong>${esc(u.nombre)}</strong><div class="sub" style="margin:0">${esc(u.tipo)}${u.creada_ts ? ' · abrió ' + fCorta(new Date(u.creada_ts)) + '/' + new Date(u.creada_ts).getFullYear() : ''}${u.activa ? '' : ' · <span class="chip alerta">eliminada</span>'}${u.correo ? `<br><span title="Usuario que ingresa como esta sala">👤 ${esc(u.correo)}</span>` : ''}${(u.correos_extra || []).length ? `<br><span title="Usuarios adicionales que también pueden pedir por esta sala">➕ ${esc(u.correos_extra.join(', '))}</span>` : ''}</div></td><td class="num mono">${esc(u.codigo_sala || '–')}</td><td class="num">${esc(u.muelle || '–')}</td><td>${esc(u.regional || '–')}</td>
-      <td><select data-ug="${esc(u.id)}" id="ug-${esc(u.id)}" aria-label="Grupo de ${esc(u.nombre)}">${GL.map(g => `<option value="${g.id}" ${u.grupo_id === g.id ? 'selected' : ''}>${esc(g.nombre)}</option>`).join('')}</select></td>
+    <div class="tbl-wrap"><table><thead><tr><th>Sucursal / área</th><th class="num">Cód. sala</th>${conMue ? '<th class="num">Muelle</th>' : ''}<th>Regional</th><th>Grupo que aprueba</th><th>Enlace directo</th><th class="num">Sala</th></tr></thead><tbody>` +
+    (us.length ? us.map(u => `<tr class="${u.activa ? '' : 'cerrada'}"><td><strong>${esc(u.nombre)}</strong><div class="sub" style="margin:0">${esc(u.tipo)}${conAlm ? ' · <span class="chip alm">' + esc(almNom(u.almacen || 'SCZ')) + '</span>' : ''}${u.creada_ts ? ' · abrió ' + fCorta(new Date(u.creada_ts)) + '/' + new Date(u.creada_ts).getFullYear() : ''}${u.activa ? '' : ' · <span class="chip alerta">eliminada</span>'}${u.correo ? `<br><span title="Usuario que ingresa como esta sala">👤 ${esc(u.correo)}</span>` : ''}${(u.correos_extra || []).length ? `<br><span title="Usuarios adicionales que también pueden pedir por esta sala">➕ ${esc(u.correos_extra.join(', '))}</span>` : ''}</div></td><td class="num mono">${esc(u.codigo_sala || '–')}</td>${conMue ? `<td class="num">${esc(u.muelle || '–')}</td>` : ''}<td>${esc(u.regional || '–')}</td>
+      <td><select data-ug="${esc(u.id)}" id="ug-${esc(u.id)}" aria-label="Grupo de ${esc(u.nombre)}">${gsU(u).map(g => `<option value="${g.id}" ${u.grupo_id === g.id ? 'selected' : ''}>${esc(g.nombre)}</option>`).join('')}</select></td>
       <td class="mono sub" style="font-size:11px;word-break:break-all">?u=${esc(u.id)}</td><td class="num" style="white-space:nowrap">${botonEditar(u)}${botonCerrar(u)}</td></tr>`).join('') : '<tr><td colspan="7" class="empty">Ninguna coincide.</td></tr>') +
-    `</tbody></table></div><p class="sub" style="margin:0">El enlace directo abre la página con esa sucursal ya elegida: agregue <span class="mono">?u=CÓDIGO</span> al final de la dirección de la página. <button class="btn btn-sm" id="btnCopiarLink">Copiar lista de enlaces</button></p></section>` + vKit();
+    `</tbody></table></div><p class="sub" style="margin:0">El enlace directo abre la página con esa sucursal ya elegida: agregue <span class="mono">?u=CÓDIGO</span> al final de la dirección de la página. <button class="btn btn-sm" id="btnCopiarLink">Copiar lista de enlaces</button></p></section>` + (esNac() ? vKit() : '');
 }
 // ---------- kit de apertura (editable por logística) ----------
 let kitEd = null;
@@ -1039,15 +1068,17 @@ $('detBody').addEventListener('click', async e => {
 // ---------- sesión ----------
 async function evaluarSesion(s){
   sesion = s; rol = {admin:false, grupos:[]};
-  if(s){ const {data} = await sb.rpc('mi_rol'); if(data) rol = {unidades:data.unidades || null, admin:!!data.admin, final:!!data.final, consulta:!!data.consulta, grupos:data.grupos || [], unidad:data.unidad || null}; }
+  if(s){ const {data} = await sb.rpc('mi_rol'); if(data) rol = {unidades:data.unidades || null, admin:!!data.admin, almacen:data.admin && data.almacen ? data.almacen : null, final:!!data.final, consulta:!!data.consulta, grupos:data.grupos || [], unidad:data.unidad || null}; }
+  aplicarAlm();
   $('btnLogin').textContent = s ? 'Salir' : 'Ingresar';
-  $('roleChip').textContent = rol.admin ? 'Logística CEDIS' : esConsulta() ? 'Consulta' + (salaUsuario() ? ' · ' + U[salaUsuario()].nombre : '') : esJefatura() ? 'Jefatura · ' + rol.grupos.map(g => G[g]?.aprobador).join(', ') : rol.unidad && U[rol.unidad] && !rol.grupos.length ? U[rol.unidad].nombre : rol.grupos.length ? 'Aprobador · ' + rol.grupos.map(g => G[g]?.aprobador).join(', ') : s ? 'Sin grupo asignado' : EXIGIR ? 'Sin ingresar' : 'Sucursal';
+  $('roleChip').textContent = rol.admin ? (rol.almacen ? 'Logística ' + almNom(rol.almacen) : multiAlm() ? 'Logística nacional' : 'Logística CEDIS') : esConsulta() ? 'Consulta' + (salaUsuario() ? ' · ' + U[salaUsuario()].nombre : '') : esJefatura() ? 'Jefatura · ' + rol.grupos.map(g => G[g]?.aprobador).join(', ') : rol.unidad && U[rol.unidad] && !rol.grupos.length ? U[rol.unidad].nombre : rol.grupos.length ? 'Aprobador · ' + rol.grupos.map(g => G[g]?.aprobador).join(', ') : s ? 'Sin grupo asignado' : EXIGIR ? 'Sin ingresar' : 'Sucursal';
   $('roleChip').classList.toggle('role', rol.admin || !!rol.consulta || rol.grupos.length > 0);
   if(rol.admin){ try{ await cargarBase(); }catch(e){} }
   if(listo && EXIGIR){ try{ await cargarPedidos(); }catch(e){} }
   await cargarPrecios();
+  aplicarAlm();
   await cargarInventario();
-  if(rol.admin) await cargarAdmins();
+  if(esNac()) await cargarAdmins();
   await cargarNuevos();
   activarPush(true);
   if(s && !rol.admin && !rol.consulta && !rol.grupos.length && !rol.unidad) toast('Ingresó, pero su correo todavía no está vinculado a ninguna sala ni grupo. Pida a logística que lo registre.');
@@ -1305,10 +1336,13 @@ function lineaCicloMini(){ const c = cicloActivo(), f = fases(c), fa = faseActua
   return `<div class="notice info">Plazo para enviar solicitudes: del <strong>10 al 20</strong> de cada mes. ${fa === 'envio' ? `Ciclo ${esc(nombreCiclo(c))}: quedan ${plural(diasHasta(f.envio[1]), 'día', 'días')}.` : ''}</div>`; }
 
 // ---------- nueva sala o área ----------
-function gruposCreables(){ return rol.admin ? GL : GL.filter(g => rol.grupos.includes(g.id) && g.id !== 'SIN'); }
+function gruposCreables(){ return rol.admin ? GL.filter(g => esNac() || g.almacen === rol.almacen || !g.almacen) : GL.filter(g => rol.grupos.includes(g.id) && g.tipo !== 'Sin asignar'); }
+const almForm = () => { const g = G[$('uGrupo').value]; return g?.almacen || (rol.almacen) || ($('uAlm') && !$('uAlmWrap').hidden ? $('uAlm').value : almCosto()); };
 function ajustarFormUnidad(){
   const g = G[$('uGrupo').value], suc = !g || g.tipo === 'Sucursales' || g.tipo === 'Sin asignar';
   $('uSoloSuc').hidden = !suc;
+  if($('uAlmWrap')){ const libre = multiAlm() && !g?.almacen && !rol.almacen; $('uAlmWrap').hidden = !libre; if(libre && !$('uAlm').options.length) $('uAlm').innerHTML = ALMS.map(a => `<option value="${esc(a.id)}" ${a.id === almCosto() ? 'selected' : ''}>${esc(a.nombre)}</option>`).join(''); }
+  $('uMuelle').closest('label').hidden = !muellesAlm(almForm());
   $('uNombre').placeholder = suc ? 'Ej: SUC-210 NUEVA SALA' : g.tipo === 'CEDIS' ? 'Ej: Inventarios' : 'Ej: Recursos Humanos';
   $('uAyuda').textContent = suc ? 'Escriba el nombre como en el WMS, por ejemplo "SUC-210 NUEVA SALA". El código de sala y el muelle se usan en el reporte de dotación.' : `Será un área de ${g.nombre}. Sus solicitudes las confirma ${g.aprobador}.`;
 }
@@ -1320,8 +1354,8 @@ function abrirEditarUnidad(uid){
   $('uTitulo').textContent = 'Editar ' + u.nombre; $('uGrupoWrap').hidden = true; $('uNombre').value = u.nombre; $('uNombre').disabled = true;
   $('uCorreoWrap').hidden = !rol.admin; $('uCorreo').value = u.correo || ''; $('uExtraWrap').hidden = !rol.admin; $('uExtra').value = (u.correos_extra || []).join(', ');
   $('uCodigo').value = u.codigo_sala || ''; $('uMuelle').value = u.muelle || ''; $('uRegional').value = u.regional || ''; $('uFecha').value = u.creada_ts ? isoDia(u.creada_ts) : '';
-  $('dlRegional').innerHTML = [...new Set(UL.map(x => x.regional).filter(Boolean).concat(['SANTA CRUZ','COCHABAMBA','TARIJA','BENI']))].map(r => `<option value="${esc(r)}">`).join('');
-  $('uSoloSuc').hidden = false; $('uAyuda').textContent = 'La fecha de apertura sirve para que la cobertura y las alertas cuenten solo desde que la sala abrió. Déjela vacía si la sala ya existía antes de usar la app.';
+  $('dlRegional').innerHTML = [...new Set(UL.map(x => x.regional).filter(Boolean).concat(['SANTA CRUZ','COCHABAMBA','TARIJA','BENI','LA PAZ','ORURO','POTOSI']))].map(r => `<option value="${esc(r)}">`).join('');
+  $('uSoloSuc').hidden = false; $('uMuelle').closest('label').hidden = !muellesAlm(u.almacen || 'SCZ'); if($('uAlmWrap')) $('uAlmWrap').hidden = true; $('uAyuda').textContent = 'La fecha de apertura sirve para que la cobertura y las alertas cuenten solo desde que la sala abrió. Déjela vacía si la sala ya existía antes de usar la app.';
   $('uMsg').hidden = true; $('uGuardar').textContent = 'Guardar'; $('mUnidad').hidden = false; $('uCodigo').focus();
 }
 function abrirNuevaUnidad(gid){
@@ -1329,11 +1363,12 @@ function abrirNuevaUnidad(gid){
   const gs = gruposCreables(); if(!gs.length){ toast('No tiene un grupo asignado para crear salas.'); return; }
   $('uGrupo').innerHTML = gs.map(g => `<option value="${g.id}" ${g.id === gid ? 'selected' : ''}>${esc(g.nombre)} · ${esc(g.aprobador)}</option>`).join('');
   $('uGrupo').disabled = gs.length === 1;
-  $('dlRegional').innerHTML = [...new Set(UL.map(u => u.regional).filter(Boolean).concat(['SANTA CRUZ','COCHABAMBA','TARIJA','BENI']))].map(r => `<option value="${esc(r)}">`).join('');
+  $('dlRegional').innerHTML = [...new Set(UL.map(u => u.regional).filter(Boolean).concat(['SANTA CRUZ','COCHABAMBA','TARIJA','BENI','LA PAZ','ORURO','POTOSI']))].map(r => `<option value="${esc(r)}">`).join('');
   ['uNombre','uCodigo','uRegional'].forEach(id => $(id).value = ''); $('uMuelle').value = ''; $('uMsg').hidden = true;
   ajustarFormUnidad(); $('mUnidad').hidden = false; $('uNombre').focus();
 }
 $('uGrupo').addEventListener('change', ajustarFormUnidad);
+$('uAlm')?.addEventListener('change', ajustarFormUnidad);
 $('formUnidad').addEventListener('submit', async e => {
   e.preventDefault();
   const nombre = $('uNombre').value.trim(), cod = $('uCodigo').value.trim();
@@ -1354,7 +1389,7 @@ $('formUnidad').addEventListener('submit', async e => {
     $('mUnidad').hidden = true; try{ await cargarBase(); }catch(_){}
     toast(`${U[editUid]?.nombre || 'Sala'} actualizada.`); render(); return;
   }
-  const {data, error} = await sb.rpc('crear_unidad', {p_nombre:nombre, p_grupo:$('uGrupo').value, p_codigo:cod, p_muelle:$('uMuelle').value, p_regional:$('uRegional').value});
+  const {data, error} = await sb.rpc('crear_unidad_alm', {p_nombre:nombre, p_grupo:$('uGrupo').value, p_codigo:cod, p_muelle:muellesAlm(almForm()) ? $('uMuelle').value : '', p_regional:$('uRegional').value, p_almacen:almForm()});
   btn.disabled = false;
   if(error){ err(/permission/i.test(error.message) ? 'No tiene permiso para crear salas en ese grupo.' : error.message); return; }
   $('mUnidad').hidden = true;
@@ -1364,9 +1399,9 @@ $('formUnidad').addEventListener('submit', async e => {
 });
 
 // ---------- eliminar (cerrar) o reactivar sala ----------
-const botonEditar = u => (rol.admin || (u.grupo_id !== 'SIN' && rol.grupos.includes(u.grupo_id))) && u.activa ? `<button class="btn btn-sm" data-editar-unidad="${esc(u.id)}">Editar</button> ` : '';
+const botonEditar = u => (editaAlm(u.almacen || 'SCZ') || (tipoG(u.grupo_id) !== 'Sin asignar' && rol.grupos.includes(u.grupo_id))) && u.activa ? `<button class="btn btn-sm" data-editar-unidad="${esc(u.id)}">Editar</button> ` : '';
 function botonCerrar(u){
-  if(!(rol.admin || (u.grupo_id !== 'SIN' && rol.grupos.includes(u.grupo_id)))) return '';
+  if(!(editaAlm(u.almacen || 'SCZ') || (tipoG(u.grupo_id) !== 'Sin asignar' && rol.grupos.includes(u.grupo_id)))) return '';
   return u.activa ? `<button class="btn btn-sm btn-danger" data-cerrar="${esc(u.id)}" data-activa="0">Eliminar</button>` : `<button class="btn btn-sm" data-cerrar="${esc(u.id)}" data-activa="1">Reactivar</button>`;
 }
 async function cerrarSala(uid, activar, btn){
@@ -1396,10 +1431,10 @@ document.addEventListener('keydown', e => { if((e.key === 'Enter' || e.key === '
 function vMateriales(){
   const cats = [...new Set(ML.map(m => m.categoria || 'General'))].sort((a,b) => a.localeCompare(b,'es'));
   return vNuevos() + `<section class="panel"><div class="panel-head"><div><h2>Lista de materiales</h2><p class="sub">Todos los insumos que se pueden pedir (${ML.filter(matActivo).length}). Antes de pedir un material nuevo, revise aquí si ya existe con otro nombre.${puedeCatalogo() ? ' Puede cambiar la categoría o eliminar un material que ya no se entrega; los eliminados quedan al final y se pueden reactivar.' : ''}</p></div>${puedeCatalogo() ? '<button class="btn btn-primary" id="btnNuevoMat">+ Nuevo material</button>' : ''}</div>
-    <div class="row"><input id="fMatQ" placeholder="Buscar por código o nombre…" value="${esc(fMatQ)}" style="flex:1;min-width:220px" autocomplete="off">
+    <div class="row"><input id="fMatQ" placeholder="Buscar por código o nombre…" value="${esc(fMatQ)}" style="flex:1;min-width:220px" autocomplete="off">${verPrecios() ? selAlmCosto() : ''}
       <select id="fMatCat" style="width:auto"><option value="TODAS">Todas las categorías</option>${cats.map(c => `<option ${fMatCat === c ? 'selected' : ''}>${esc(c)}</option>`).join('')}</select></div>
     <p class="sub" id="matCuenta" style="margin:0"></p>
-    <div class="tbl-wrap"><table><thead><tr>${thOrd('codigo','Código')}${thOrd('desc','Material')}${thOrd('um','U.M.','num')}${thOrd('cat','Categoría')}${rol.admin || verTablero() ? thOrd('prov','Proveedor') : ''}${verPrecios() ? thOrd('costo','Costo unit.','num') : ''}${puedeCatalogo() ? '<th class="num">Acción</th>' : ''}</tr></thead><tbody id="matFilas"></tbody></table></div></section>`;
+    <div class="tbl-wrap"><table><thead><tr>${thOrd('codigo','Código')}${thOrd('desc','Material')}${thOrd('um','U.M.','num')}${thOrd('cat','Categoría')}${rol.admin || verTablero() ? thOrd('prov','Proveedor') : ''}${multiAlm() ? '<th title="Almacenes que entregan este material">Almacén</th>' : ''}${verPrecios() ? thOrd('costo', multiAlm() ? 'Costo ' + esc(almCosto()) : 'Costo unit.','num') : ''}${puedeCatalogo() ? '<th class="num">Acción</th>' : ''}</tr></thead><tbody id="matFilas"></tbody></table></div></section>`;
 }
 const catsMat = () => [...new Set(ML.map(m => m.categoria || 'General'))].sort((a,b) => a.localeCompare(b,'es'));
 async function cambiarCategoria(cod, val, el){
@@ -1475,7 +1510,7 @@ function pintaMateriales(){
   const tb = $('matFilas'); if(!tb) return;
   const q = normTxt(fMatQ).trim(), pal = q.split(/\s+/).filter(Boolean);
   const edit = puedeCatalogo();
-  const l = ML.filter(m => (edit || matActivo(m)) && (fMatCat === 'TODAS' || (m.categoria || 'General') === fMatCat) && (!pal.length || pal.every(w => normTxt(m.descripcion + ' ' + m.codigo).includes(w)))).sort((a,b) => { const act = matActivo(b) - matActivo(a); if(act || !ordMat.k) return act;
+  const av = almVista(); const l = ML.filter(m => (edit || matActivo(m)) && matEnAlm(m, av) && (fMatCat === 'TODAS' || (m.categoria || 'General') === fMatCat) && (!pal.length || pal.every(w => normTxt(m.descripcion + ' ' + m.codigo).includes(w)))).sort((a,b) => { const act = matActivo(b) - matActivo(a); if(act || !ordMat.k) return act;
     const f = ORD_MAT[ordMat.k], x = f(a), y = f(b);
     if(x == null || y == null) return (x == null) - (y == null);
     return (typeof x === 'number' ? x - y : x.localeCompare(y, 'es')) * ordMat.dir; });
@@ -1484,10 +1519,10 @@ function pintaMateriales(){
   const cats = catsMat();
   const celda = m => edit ? `<select data-cat="${esc(m.codigo)}" aria-label="Categoría de ${esc(m.descripcion)}" style="width:auto;min-width:130px">${cats.map(c => `<option ${(m.categoria || 'General') === c ? 'selected' : ''}>${esc(c)}</option>`).join('')}<option value="__nueva">+ Nueva categoría…</option></select>` : `<span class="chip">${esc(m.categoria || 'General')}</span>`;
   const acc = m => matActivo(m) ? `<button class="btn btn-sm btn-danger" data-matcerrar="${esc(m.codigo)}">Eliminar</button>` : `<button class="btn btn-sm" data-matactivar="${esc(m.codigo)}">Reactivar</button>`;
-  if(rol.admin && !$('dlProv')){ const d = document.createElement('datalist'); d.id = 'dlProv'; document.body.append(d); }
+  if(esNac() && !$('dlProv')){ const d = document.createElement('datalist'); d.id = 'dlProv'; document.body.append(d); }
   if($('dlProv')) $('dlProv').innerHTML = [...new Set(ML.map(m => m.proveedor).filter(Boolean))].sort().map(v => `<option value="${esc(v)}">`).join('');
-  tb.innerHTML = l.length ? l.map(m => `<tr class="${matActivo(m) ? '' : 'cerrada'}"><td class="code">${esc(m.codigo)}</td><td>${esc(m.descripcion)}${matActivo(m) ? '' : ' <span class="chip alerta">eliminado</span>'}</td><td class="num">${esc(m.unidad)}</td><td>${matActivo(m) ? celda(m) : `<span class="chip">${esc(m.categoria || 'General')}</span>`}</td>${rol.admin ? `<td><input class="prov-in" list="dlProv" data-prov="${esc(m.codigo)}" value="${esc(m.proveedor || '')}" placeholder="—" maxlength="40" aria-label="Proveedor de ${esc(m.descripcion)}"></td>` : verTablero() ? `<td>${esc(m.proveedor || '—')}</td>` : ''}${verPrecios() ? `<td class="num">${rol.admin ? `<input type="number" min="0" step="0.01" class="qty precio" data-precio="${esc(m.codigo)}" value="${P[m.codigo] != null ? +P[m.codigo].toFixed(2) : ''}" placeholder="–" aria-label="Costo de ${esc(m.descripcion)}">` : (P[m.codigo] != null ? fBs(P[m.codigo]) : '<span class="sub">–</span>')}</td>` : ''}${edit ? `<td class="num">${acc(m)}</td>` : ''}</tr>`).join('')
-    : '<tr><td colspan="5" class="empty">No hay materiales con ese nombre. Pruebe con otra palabra o con el código.</td></tr>';
+  tb.innerHTML = l.length ? l.map(m => `<tr class="${matActivo(m) ? '' : 'cerrada'}"><td class="code">${esc(m.codigo)}</td><td>${esc(m.descripcion)}${matActivo(m) ? '' : ' <span class="chip alerta">eliminado</span>'}</td><td class="num">${esc(m.unidad)}</td><td>${matActivo(m) ? celda(m) : `<span class="chip">${esc(m.categoria || 'General')}</span>`}</td>${esNac() ? `<td><input class="prov-in" list="dlProv" data-prov="${esc(m.codigo)}" value="${esc(m.proveedor || '')}" placeholder="—" maxlength="40" aria-label="Proveedor de ${esc(m.descripcion)}"></td>` : verTablero() ? `<td>${esc(m.proveedor || '—')}</td>` : ''}${multiAlm() ? `<td class="alm-cel">${ALMS.map(a => esNac() ? `<label class="alm-ck"><input type="checkbox" data-matalm="${esc(m.codigo)}" value="${esc(a.id)}" ${(m.almacenes || ['SCZ']).includes(a.id) ? 'checked' : ''}>${esc(a.id)}</label>` : (m.almacenes || ['SCZ']).includes(a.id) ? `<span class="chip alm">${esc(a.id)}</span>` : '').join(' ')}</td>` : ''}${verPrecios() ? `<td class="num">${editaAlm(almCosto()) ? `<input type="number" min="0" step="0.01" class="qty precio" data-precio="${esc(m.codigo)}" value="${P[m.codigo] != null ? +P[m.codigo].toFixed(2) : ''}" placeholder="–" aria-label="Costo de ${esc(m.descripcion)}">` : (P[m.codigo] != null ? fBs(P[m.codigo]) : '<span class="sub">–</span>')}</td>` : ''}${edit ? `<td class="num">${acc(m)}</td>` : ''}</tr>`).join('')
+    : '<tr><td colspan="8" class="empty">No hay materiales con ese nombre. Pruebe con otra palabra o con el código.</td></tr>';
 }
 
 // Tab o Enter en la cantidad → vuelve al buscador para agregar el siguiente insumo
@@ -1510,12 +1545,13 @@ const provDe = c => (M[c]?.proveedor || '').trim() || 'SIN PROVEEDOR';
 const BANDAS = [['#dbe8f6','#c9dcf0','FFDBE8F6','FFC9DCF0'],['#d9f0c8','#c6e6ad','FFD9F0C8','FFC6E6AD'],['#fde9c8','#f9dbab','FFFDE9C8','FFF9DBAB'],['#ece0f5','#dfcdee','FFECE0F5','FFDFCDEE'],['#d5f0ee','#bfe6e3','FFD5F0EE','FFBFE6E3'],['#f7dcdc','#f0c8c8','FFF7DCDC','FFF0C8C8']];
 function datosInventario(){
   const por = {}, salasC = {}, info = {};
-  pedidos.forEach(p => { const pend = p.estado === 'Enviada'; if(p.estado !== 'Confirmada' && p.estado !== 'Aprobada' && !(pend && fInvPend)) return;
+  const al = almCosto(), PA = P_ALM[al] || {};
+  pedAll.filter(p => almDeU(p.unidad_id) === al).forEach(p => { const pend = p.estado === 'Enviada'; if(p.estado !== 'Confirmada' && p.estado !== 'Aprobada' && !(pend && fInvPend)) return;
     const tipo = U[p.unidad_id]?.tipo || 'Sucursal', k = TIPOS_INV.some(t => t[0] === tipo) ? tipo : 'Sucursal';
     p.items.forEach(i => { const c = +i.cantidad || 0; if(!c) return; const x = por[i.codigo] ||= {conf:0, pend:0, tipos:{}}; if(pend) x.pend += c; else x.conf += c; x.tipos[k] = (x.tipos[k] || 0) + c; info[i.codigo] ||= i; (salasC[i.codigo] ||= new Set()).add(p.unidad_id); }); });
-  const cods = new Set([...Object.keys(por), ...ML.filter(matActivo).map(m => m.codigo)]);
+  const cods = new Set([...Object.keys(por), ...ML.filter(m => matActivo(m) && matEnAlm(m, al)).map(m => m.codigo)]);
   return [...cods].map(c => { const m = M[c] || info[c] || {}, d = por[c] || {conf:0, pend:0, tipos:{}}, st = INV[c] || 0, nec = d.conf + d.pend, saldo = st - nec;
-    return {codigo:c, descripcion:m.descripcion || c, unidad:m.unidad || '', proveedor:provDe(c), tipos:d.tipos, stock:st, conf:d.conf, pend:d.pend, nec, saldo, falta:Math.max(0, -saldo), salas:salasC[c]?.size || 0, precio:P[c], fuera:!M[c] || !matActivo(M[c])}; })
+    return {codigo:c, descripcion:m.descripcion || c, unidad:m.unidad || '', proveedor:provDe(c), tipos:d.tipos, stock:st, conf:d.conf, pend:d.pend, nec, saldo, falta:Math.max(0, -saldo), salas:salasC[c]?.size || 0, precio:PA[c], fuera:!M[c] || !matActivo(M[c])}; })
     .filter(r => !r.fuera && (r.nec > 0 || r.stock > 0));
 }
 // orden del formato de compra: por proveedor (sin proveedor al final) y luego por insumo
@@ -1529,8 +1565,8 @@ function vInventario(){
   const fq = n => (+n).toLocaleString('es-BO', {maximumFractionDigits:2}), band = bandasProv(l); let prev = null, alt = 0;
   const cuando = INV_INFO ? `Inventario cargado el ${fFH(new Date(INV_INFO.ts).getTime())}${INV_INFO.archivo ? ' · ' + esc(INV_INFO.archivo) : ''}` : 'Todavía no se cargó el inventario';
   const sinProv = conNec.filter(r => r.proveedor === 'SIN PROVEEDOR').length;
-  return `<section class="panel"><div class="panel-head"><div><h2>Necesidad de compra</h2><p class="sub">${cuando}. Total del período = lo confirmado que falta entregar${fInvPend ? ' + lo que está por confirmar' : ''}; a comprar = total del período − stock.</p></div>
-    <div class="row">${rol.admin ? '<button class="btn btn-sm btn-primary" id="btnInvSubir">⬆ Cargar inventario</button><input type="file" id="fileInv" accept=".xlsx,.xls,.csv" hidden>' : ''}<button class="btn btn-sm" id="btnInvExcel" ${faltan.length ? '' : 'disabled'}>⬇ Excel de compra</button></div></div>
+  return `<section class="panel"><div class="panel-head"><div><h2>Necesidad de compra${multiAlm() ? ' · ' + esc(almNom(almCosto())) : ''}</h2><p class="sub">${cuando}. Total del período = lo confirmado que falta entregar${fInvPend ? ' + lo que está por confirmar' : ''}; a comprar = total del período − stock.</p></div>
+    <div class="row">${almVista() === 'TODOS' ? selAlmCosto() : ''}${editaAlm(almCosto()) ? '<button class="btn btn-sm btn-primary" id="btnInvSubir">⬆ Cargar inventario</button><input type="file" id="fileInv" accept=".xlsx,.xls,.csv" hidden>' : ''}<button class="btn btn-sm" id="btnInvExcel" ${faltan.length ? '' : 'disabled'}>⬇ Excel de compra</button></div></div>
     <div class="inv-res"><div class="kpi ${faltan.length ? 'mal' : 'bien'}"><b>${faltan.length}</b><span>de ${conNec.length} insumos solicitados<br>no alcanzan con el stock</span></div>
       ${verPrecios() ? `<div class="kpi"><b>${fBs(valor)}</b><span>valor a comprar${sinP ? `<br>${plural(sinP, 'insumo sin costo', 'insumos sin costo')}` : ''}</span></div>` : ''}
       <div class="kpi bien"><b>${conNec.length - faltan.length}</b><span>insumos cubiertos<br>en su totalidad</span></div></div>
@@ -1576,7 +1612,7 @@ function prepararInventario(filas, nombre){
   const hi = filas.slice(0, 15).findIndex(f => f.some(c => /cod/i.test(normTxt(String(c)))) && f.some(c => /stock|saldo|exist|cant|fisico|disponible/i.test(normTxt(String(c)))));
   const cab = hi >= 0 ? filas[hi].map(c => normTxt(String(c))) : [];
   const datos = hi >= 0 ? filas.slice(hi + 1) : filas;
-  let cc = cab.findIndex(t => /cod/.test(t) && !/barra/.test(t)), cs = cab.findIndex(t => /stock|saldo|exist|fisico|disponible/.test(t)), cp = cab.findIndex(t => /costo|precio|c\.?\s*u|unit/.test(t));
+  let cc = cab.findIndex(t => /cod.{0,3}int/.test(t)); if(cc < 0) cc = cab.findIndex(t => /cod/.test(t) && !/barra|fabrica/.test(t)); let cs = cab.findIndex(t => /stock|saldo|exist|fisico|disponible/.test(t)), cp = cab.findIndex(t => /costo|precio|c\.?\s*u|unit/.test(t));
   if(cs < 0) cs = cab.findIndex(t => /^cant|cantidad/.test(t));
   let cd = cab.findIndex(t => /descrip|nombre|articulo|item|producto/.test(t)), cu = cab.findIndex(t => /^u\.?\s*m|unidad|medida/.test(t)), cv = cab.findIndex(t => /proveedor/.test(t));
   if(cc < 0){ let best = 0; for(let i = 0; i < ancho; i++){ const k = datos.filter(f => M[normCod(f[i])]).length; if(k > best){ best = k; cc = i; } } }
@@ -1592,7 +1628,7 @@ function prepararInventario(filas, nombre){
   if(!items.length){ toast('El archivo no tiene filas con código y stock.'); return; }
   impInv = {items, nombre, conCosto: cp >= 0};
   const enMae = items.filter(i => M[i.codigo]), cambian = enMae.filter(i => (INV[i.codigo] || 0) !== i.stock), faltanMae = ML.filter(m => matActivo(m) && !por[m.codigo]);
-  $('invBody').innerHTML = `<p class="sub" style="margin:0">Archivo: <strong>${esc(nombre)}</strong> · ${plural(items.length, 'insumo', 'insumos')} con stock (${enMae.length} están en la lista de materiales de la app).</p>
+  $('invBody').innerHTML = `<p class="sub" style="margin:0">${multiAlm() ? `Almacén: <strong>${esc(almNom(almCosto()))}</strong> · ` : ''}Archivo: <strong>${esc(nombre)}</strong> · ${plural(items.length, 'insumo', 'insumos')} con stock (${enMae.length} están en la lista de materiales de la app).</p>
     <div class="notice info">Esta carga <strong>reemplaza</strong> el inventario anterior: lo que no venga en el archivo queda con stock 0.${faltanMae.length ? ` ${plural(faltanMae.length, 'material de la app no aparece', 'materiales de la app no aparecen')} en el archivo.` : ''}</div>
     <div class="tbl-wrap" style="max-height:46vh;overflow:auto"><table><thead><tr><th>Código</th><th>Insumo</th><th class="num">Stock antes</th><th class="num">Stock nuevo</th>${impInv.conCosto ? '<th class="num">Costo</th>' : ''}</tr></thead><tbody>${enMae.sort((a, b) => (M[a.codigo].descripcion || '').localeCompare(M[b.codigo].descripcion || '', 'es')).map(i => `<tr><td class="code">${esc(i.codigo)}</td><td>${esc(M[i.codigo].descripcion)}</td><td class="num sub">${INV[i.codigo] ?? '–'}</td><td class="num"><strong>${i.stock}</strong></td>${impInv.conCosto ? `<td class="num">${i.costo != null ? fBs(i.costo) : '–'}</td>` : ''}</tr>`).join('')}</tbody></table></div>
     ${impInv.conCosto ? '<label class="recordar"><input type="checkbox" id="invCostos"> Actualizar también los costos de los materiales con los del archivo</label>' : ''}`;
@@ -1601,7 +1637,7 @@ function prepararInventario(filas, nombre){
 }
 async function aplicarInventario(btn){
   btn.disabled = true;
-  const {data, error} = await sb.rpc('cargar_inventario', {p_items:impInv.items, p_archivo:impInv.nombre, p_costos:!!$('invCostos')?.checked});
+  const {data, error} = await sb.rpc('cargar_inventario_alm', {p_almacen:almCosto(), p_items:impInv.items, p_archivo:impInv.nombre, p_costos:!!$('invCostos')?.checked});
   btn.disabled = false;
   if(error){ toast('No se pudo cargar: ' + errMsg(error)); return; }
   $('mInv').hidden = true; toast(`Inventario actualizado: ${plural(data ?? impInv.items.length, 'insumo', 'insumos')}.`);
@@ -1648,6 +1684,14 @@ document.addEventListener('keydown', e => {
 });
 
 document.addEventListener('change', async e => {
+  const t = e.target, cm = t.dataset?.matalm; if(!cm) return; const m = M[cm]; if(!m) return;
+  const l = [...document.querySelectorAll(`[data-matalm="${CSS.escape(cm)}"]`)].filter(x => x.checked).map(x => x.value);
+  if(!l.length){ t.checked = true; toast('El material debe entregarse en al menos un almacén.'); return; }
+  t.disabled = true; const {error} = await sb.rpc('guardar_almacenes_material', {p_codigo:cm, p_almacenes:l}); t.disabled = false;
+  if(error){ t.checked = !t.checked; toast('No se pudo guardar: ' + errMsg(error)); return; }
+  m.almacenes = l; toast(`${m.descripcion}: se entrega en ${l.map(almNom).join(' y ')}.`);
+});
+document.addEventListener('change', async e => {
   const t = e.target, cod = t.dataset?.prov; if(!cod) return;
   const m = M[cod]; if(!m) return; const v = t.value.trim().toUpperCase(); if(v === (m.proveedor || '')) return;
   t.disabled = true; const {error} = await sb.rpc('guardar_proveedor', {p_codigo:cod, p_proveedor:v}); t.disabled = false;
@@ -1662,7 +1706,7 @@ document.addEventListener('mousemove', e => { const t = document.getElementById(
 document.addEventListener('click', e => { const el = e.target.closest?.('[data-tip]'); if(!el) return; let t = document.getElementById('tip'); if(!t){ t = document.createElement('div'); t.id = 'tip'; document.body.append(t); } t.textContent = el.dataset.tip; t.hidden = false; const r = el.getBoundingClientRect(); t.style.left = Math.max(8, Math.min(innerWidth - t.offsetWidth - 8, r.left)) + 'px'; t.style.top = (r.bottom + 6) + 'px'; setTimeout(() => t.hidden = true, 2500); });
 
 // ---------- aprobación final (Finanzas: Helen; respaldo: Logística) ----------
-const requiereFinal = p => p.tipo !== 'Apertura' && !['CEDIS','OFC'].includes(U[p.unidad_id]?.grupo_id);
+const requiereFinal = p => p.tipo !== 'Apertura' && !['CEDIS','Oficina central'].includes(tipoG(U[p.unidad_id]?.grupo_id));
 function vFinal(){
   const l = pedidos.filter(p => p.estado === 'Confirmada').sort((a, b) => a.confirmado_ts - b.confirmado_ts), n = l.filter(p => sel.has(p.id)).length;
   const val = verPrecios() ? l.reduce((a, p) => a + valorPedido(p, false).total, 0) : 0, valSel = verPrecios() ? l.filter(p => sel.has(p.id)).reduce((a, p) => a + valorPedido(p, false).total, 0) : 0;
@@ -1706,7 +1750,7 @@ async function enviarPedirNuevo(btn){
   NUEVOS_SALA[u] = null; toast('Solicitud de material nuevo enviada. Puede ver si se aprobó en Seguimiento.');
 }
 function vNuevos(){
-  if(!rol.admin) return '';
+  if(!esNac()) return '';
   const pend = NUEVOS.filter(n => n.estado === 'Pendiente de revisión'), res = NUEVOS.filter(n => n.estado !== 'Pendiente de revisión').slice(0, 8);
   if(!NUEVOS.length) return '';
   const fd = t => { const d = new Date(t); return `${pad(d.getDate())}/${pad(d.getMonth() + 1)}`; };
