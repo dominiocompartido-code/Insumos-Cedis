@@ -282,3 +282,5 @@ begin perform public.guardar_rol_alm(p_email, p_nombre, p_activo, p_rol, null); 
 -- políticas de edición directa: logística del almacén
 alter policy "admin edita grupos" on public.grupos using (public.is_admin() or (almacen is not null and public.es_logistica(almacen))) with check (public.is_admin() or (almacen is not null and public.es_logistica(almacen)));
 alter policy "admin edita unidades" on public.unidades using (public.es_logistica(almacen)) with check (public.es_logistica(almacen) and exists (select 1 from public.grupos g where g.id = grupo_id and (g.almacen is null or g.almacen = unidades.almacen)));
+-- 2026-10-22: salas ven costos
+create policy "salas ven precios alm" on public.precios_alm for select to anon, authenticated using ((auth.uid() is not null) or (not public.exige_ingreso()));

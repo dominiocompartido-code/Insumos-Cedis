@@ -103,11 +103,13 @@ function bannerPush(){
 }
 let KIT = [], P = {};
 const verPrecios = () => rol.admin || !!rol.consulta || rol.grupos.length > 0;
+// costo de los insumos: lo ven todos, también las salas al armar su solicitud
+const verCosto = () => true;
 let INV = {}, INVD = {}, INV_INFO = null;
 async function cargarInventario(){ INV = {}; INVD = {}; INV_INFO = null; if(!verTablero()) return; const al = almCosto();
   try{ const [a, b] = await Promise.all([sb.from('inventario_alm').select('*').eq('almacen', al), sb.from('inventario_cargas').select('*').order('ts', {ascending:false}).limit(30)]);
     (a.data || []).filter(r => (r.almacen || 'SCZ') === al).forEach(r => { INV[r.codigo] = +r.stock || 0; INVD[r.codigo] = {descripcion:r.descripcion || '', unidad:r.unidad || ''}; }); const l = (b.data || []).filter(r => (r.almacen || 'SCZ') === al).sort((x, y) => new Date(y.ts) - new Date(x.ts)); INV_INFO = l[0] || null; }catch(e){} }
-async function cargarPrecios(){ P = {}; P_ALM = {}; if(!verPrecios()) return; try{ const {data} = await sb.from('precios_alm').select('*'); (data || []).forEach(r => (P_ALM[r.almacen || 'SCZ'] ||= {})[r.codigo] = +r.precio); }catch(e){} P = P_ALM[almCosto()] || {}; }
+async function cargarPrecios(){ P = {}; P_ALM = {}; if(!verCosto()) return; try{ const {data} = await sb.from('precios_alm').select('*'); (data || []).forEach(r => (P_ALM[r.almacen || 'SCZ'] ||= {})[r.codigo] = +r.precio); }catch(e){} P = P_ALM[almCosto()] || {}; }
 const fBs = n => 'Bs ' + (+n || 0).toLocaleString('es-BO', {minimumFractionDigits:2, maximumFractionDigits:2});
 const precioDe = (p, cod) => { const v = p && p.precios && p.precios[cod] != null ? +p.precios[cod] : (p ? P_ALM[almDeU(p.unidad_id)] || {} : P)[cod]; return v != null && !isNaN(v) ? v : null; };
 function valorPedido(p, entregado){ const its = entregado && p.items_entregados ? p.items_entregados : p.items; let total = 0, sin = 0; its.forEach(i => { const v = precioDe(p, i.codigo); if(v == null){ if(+i.cantidad) sin++; } else total += v * (+i.cantidad || 0); }); return {total, sin}; }
@@ -350,7 +352,7 @@ function vSolicitar(){
     <div class="row"><div class="search" style="flex:1;min-width:240px"><input id="nBuscar" placeholder="Agregar insumo: busque por código o nombre…" autocomplete="off"><div class="results" id="nRes" hidden></div></div><button type="button" class="btn btn-sm" data-pedir-nuevo="1" title="Si el insumo no está en la lista">+ Material nuevo</button>
     <button class="btn btn-danger" id="btnVaciar" ${borrador.length ? '' : 'disabled'}>Eliminar todo</button></div>
     ${(() => { const ant = ultimoPedido(u.id); return ant ? `<div class="anterior"><span>Último pedido: <strong>${esc(ant.codigo)}</strong> · ${fF(ant.ts)} · ${ant.items.length} insumos · ${chip(ant.estado)}</span><button class="btn btn-accent btn-sm" id="btnAnterior">Cargar pedido anterior</button></div>` : ''; })()}
-    <div class="tbl-wrap"><table><thead><tr><th class="hide-sm">Código</th><th>Insumo</th><th class="num hide-sm">Unidad</th><th class="num">Cantidad</th>${verPrecios() ? '<th class="num hide-sm">Costo unit.</th><th class="num">Subtotal</th>' : ''}<th class="num"><span class="hide-sm">Quitar</span></th></tr></thead><tbody id="nItems"></tbody></table></div>
+    <div class="tbl-wrap"><table><thead><tr><th class="hide-sm">Código</th><th>Insumo</th><th class="num hide-sm">Unidad</th><th class="num">Cantidad</th>${verCosto() ? '<th class="num hide-sm">Costo unit.</th><th class="num">Subtotal</th>' : ''}<th class="num"><span class="hide-sm">Quitar</span></th></tr></thead><tbody id="nItems"></tbody></table></div>
     <div class="row" style="justify-content:space-between"><span class="sub" id="nResumen" style="margin:0"></span><button class="btn btn-primary btn-lg" id="nEnviar">${editandoId ? 'Guardar cambios' : 'Enviar solicitud'}</button></div></section>`;
   return h;
 }
@@ -378,7 +380,7 @@ const celBs = v => v == null ? '<span class="sub">sin precio</span>' : fBs(v);
 function pintaBorrador(){
   const tb = $('nItems'); if(!tb) return;
   tb.innerHTML = borrador.length ? borrador.map((i,k) => `<tr><td class="code hide-sm">${esc(i.codigo)}</td><td>${esc(i.descripcion)}<div class="sub show-sm">${esc(i.codigo)} · ${esc(i.unidad)}</div></td><td class="num hide-sm">${esc(i.unidad)}</td>
-    <td class="num"><input type="number" min="0" inputmode="numeric" class="qty" id="nq-${k}" data-nk="${k}" value="${i.cantidad}" aria-label="Cantidad de ${esc(i.descripcion)}"></td>${verPrecios() ? (() => { const pu = precioSel(i.codigo); return `<td class="num hide-sm">${celBs(pu)}</td><td class="num" id="nsub-${k}">${pu == null ? '–' : fBs(pu * (+i.cantidad || 0))}</td>`; })() : ''}<td class="num"><button class="btn btn-sm btn-danger" data-nd="${k}" aria-label="Quitar ${esc(i.descripcion)}">✕</button></td></tr>`).join('')
+    <td class="num"><input type="number" min="0" inputmode="numeric" class="qty" id="nq-${k}" data-nk="${k}" value="${i.cantidad}" aria-label="Cantidad de ${esc(i.descripcion)}"></td>${verCosto() ? (() => { const pu = precioSel(i.codigo); return `<td class="num hide-sm">${celBs(pu)}</td><td class="num" id="nsub-${k}">${pu == null ? '–' : fBs(pu * (+i.cantidad || 0))}</td>`; })() : ''}<td class="num"><button class="btn btn-sm btn-danger" data-nd="${k}" aria-label="Quitar ${esc(i.descripcion)}">✕</button></td></tr>`).join('')
     : '<tr><td colspan="6" class="empty">Busque un insumo arriba para agregarlo a la solicitud.</td></tr>';
   if($('btnVaciar')) $('btnVaciar').disabled = !borrador.length;
   pintaResumen();
@@ -387,7 +389,7 @@ function pintaResumen(){
   const r = $('nResumen'); if(!r) return;
   const con = borrador.filter(i => i.cantidad > 0), cero = borrador.length - con.length;
   let txt = `${con.length} insumos con cantidad${cero ? ` · ${cero} en cero no se enviarán` : ''}`;
-  if(verPrecios() && con.length){ let tot = 0, sin = 0; con.forEach(i => { const pu = precioSel(i.codigo); if(pu == null) sin++; else tot += pu * i.cantidad; });
+  if(verCosto() && con.length){ let tot = 0, sin = 0; con.forEach(i => { const pu = precioSel(i.codigo); if(pu == null) sin++; else tot += pu * i.cantidad; });
     r.innerHTML = `${esc(txt)} · <strong>Costo de la solicitud: ${fBs(tot)}</strong>${sin ? ` <span class="sub">(${plural(sin, 'insumo sin precio', 'insumos sin precio')})</span>` : ''}`; return; }
   r.textContent = txt;
 }
@@ -527,7 +529,7 @@ function tabla(lista, cols, vacio, conSel){
     anular: ['', p => `<td class="num" style="white-space:nowrap">${puedeEditarPed(p) ? `<button class="btn btn-sm" data-editar-ped="${esc(p.id)}">Editar</button> <button class="btn btn-sm btn-danger" data-anular="${esc(p.id)}">Anular</button>` : ''}</td>`],
     avance: ['Último avance', p => `<td class="sub">${p.estado === 'Anulada' ? 'Anulada ' + fFH(p.anulado_ts) : p.entregado_ts ? 'Entregada ' + fFH(p.entregado_ts) + (p.nro_traspaso ? ' · Traspaso ' + esc(p.nro_traspaso) : '') : p.estado === 'Rechazada' ? 'Rechazada ' + fFH(p.aprobado_ts || p.confirmado_ts) : p.aprobado_ts ? 'Aprobada ' + fFH(p.aprobado_ts) : p.confirmado_ts ? 'Confirmada ' + fFH(p.confirmado_ts) + ' · falta aprobación final' : 'Esperando confirmación'}</td>`],
   };
-  if(verPrecios() && cols.includes('items') && !cols.includes('valor')) cols = cols.flatMap(c => c === 'items' ? ['items','valor'] : [c]);
+  if(verCosto() && cols.includes('items') && !cols.includes('valor')) cols = cols.flatMap(c => c === 'items' ? ['items','valor'] : [c]);
   if(conSel) visibles = lista.map(p => p.id);
   const todos = conSel && lista.length && lista.every(p => sel.has(p.id));
   return `<div class="tbl-wrap"><table><thead><tr>${conSel ? `<th class="chk"><input type="checkbox" id="selTodos" ${todos ? 'checked' : ''} ${lista.length ? '' : 'disabled'} aria-label="Seleccionar todas"></th>` : ''}${cols.map(c => `<th>${C[c][0]}</th>`).join('')}</tr></thead><tbody>` +
@@ -1005,10 +1007,10 @@ function pintaDet(){
   const orig = p.items_original || p.items;
   if(edit){
     h += `<div class="notice">Puede cambiar cantidades o quitar líneas antes de confirmar. La sucursal verá lo que pidió y lo que usted confirmó.</div>
-    <div class="tbl-wrap"><table><thead><tr><th>Código</th><th>Insumo</th><th class="num">U.M.</th><th class="num">Pidió</th><th class="num">Confirmar</th>${verPrecios() ? '<th class="num">Costo unit.</th>' : ''}<th class="num">Quitar</th></tr></thead><tbody>` +
+    <div class="tbl-wrap"><table><thead><tr><th>Código</th><th>Insumo</th><th class="num">U.M.</th><th class="num">Pidió</th><th class="num">Confirmar</th>${verCosto() ? '<th class="num">Costo unit.</th>' : ''}<th class="num">Quitar</th></tr></thead><tbody>` +
       (detItems.length ? detItems.map((i,k) => { const o = orig.find(x => x.codigo === i.codigo);
         return `<tr><td class="code">${esc(i.codigo)}</td><td>${esc(i.descripcion)}</td><td class="num">${esc(i.unidad)}</td><td class="num">${o ? esc(o.cantidad) : '–'}</td>
-        <td class="num"><input type="number" min="1" class="qty" id="dq-${k}" data-dk="${k}" value="${esc(i.cantidad)}" aria-label="Cantidad a confirmar"></td>${verPrecios() ? `<td class="num">${celBs(precioDe(p, i.codigo))}</td>` : ''}<td class="num"><button class="btn btn-sm btn-danger" data-dd="${k}">Quitar</button></td></tr>`; }).join('')
+        <td class="num"><input type="number" min="1" class="qty" id="dq-${k}" data-dk="${k}" value="${esc(i.cantidad)}" aria-label="Cantidad a confirmar"></td>${verCosto() ? `<td class="num">${celBs(precioDe(p, i.codigo))}</td>` : ''}<td class="num"><button class="btn btn-sm btn-danger" data-dd="${k}">Quitar</button></td></tr>`; }).join('')
         : '<tr><td colspan="6" class="empty">Quitó todas las líneas. Si no corresponde, rechace la solicitud.</td></tr>') + `</tbody></table></div>
     <label class="f">Nota para la sucursal (opcional)<input id="dNota" maxlength="500" placeholder="Ej: Se ajustó al consumo promedio mensual"></label>
     <div class="row right"><input id="dMotivo" maxlength="500" placeholder="Motivo si la rechaza" style="max-width:300px"><button class="btn btn-danger" id="dRech">Rechazar</button><button class="btn btn-primary" id="dConf">Confirmar solicitud</button></div>`;
@@ -1024,8 +1026,8 @@ function pintaDet(){
     } else {
     const aj = !!p.items_original;
     const filas = aj ? [...orig.map(o => ({o, c:p.items.find(x => x.codigo === o.codigo)})), ...p.items.filter(c => !orig.some(o => o.codigo === c.codigo)).map(c => ({o:null, c}))] : p.items.map(c => ({o:c, c}));
-    h += `<div class="tbl-wrap"><table><thead><tr><th>Código</th><th>Insumo</th><th class="num">U.M.</th>${aj ? '<th class="num">Pidió</th><th class="num">Confirmado</th>' : '<th class="num">Cantidad</th>'}${verPrecios() ? '<th class="num">Costo unit.</th><th class="num">Subtotal</th>' : ''}</tr></thead><tbody>` +
-      filas.map(({o,c}) => { const i = c || o; return `<tr><td class="code">${esc(i.codigo)}</td><td>${esc(i.descripcion)}</td><td class="num">${esc(i.unidad)}</td>${aj ? `<td class="num">${o ? esc(o.cantidad) : '–'}</td><td class="num">${!c ? '<span class="quitado">quitado</span>' : (!o || +o.cantidad !== +c.cantidad) ? `<span class="cambio">${esc(c.cantidad)}</span>` : `<strong>${esc(c.cantidad)}</strong>`}</td>` : `<td class="num"><strong>${esc(c.cantidad)}</strong></td>`}${verPrecios() ? (() => { const pu = precioDe(p, i.codigo); return `<td class="num">${celBs(pu)}</td><td class="num">${pu == null || !c ? '–' : fBs(pu * (+c.cantidad || 0))}</td>`; })() : ''}</tr>`; }).join('') + '</tbody></table></div>';
+    h += `<div class="tbl-wrap"><table><thead><tr><th>Código</th><th>Insumo</th><th class="num">U.M.</th>${aj ? '<th class="num">Pidió</th><th class="num">Confirmado</th>' : '<th class="num">Cantidad</th>'}${verCosto() ? '<th class="num">Costo unit.</th><th class="num">Subtotal</th>' : ''}</tr></thead><tbody>` +
+      filas.map(({o,c}) => { const i = c || o; return `<tr><td class="code">${esc(i.codigo)}</td><td>${esc(i.descripcion)}</td><td class="num">${esc(i.unidad)}</td>${aj ? `<td class="num">${o ? esc(o.cantidad) : '–'}</td><td class="num">${!c ? '<span class="quitado">quitado</span>' : (!o || +o.cantidad !== +c.cantidad) ? `<span class="cambio">${esc(c.cantidad)}</span>` : `<strong>${esc(c.cantidad)}</strong>`}</td>` : `<td class="num"><strong>${esc(c.cantidad)}</strong></td>`}${verCosto() ? (() => { const pu = precioDe(p, i.codigo); return `<td class="num">${celBs(pu)}</td><td class="num">${pu == null || !c ? '–' : fBs(pu * (+c.cantidad || 0))}</td>`; })() : ''}</tr>`; }).join('') + '</tbody></table></div>';
     }
     if(p.items_entregados){
       const dif = p.items_entregados.filter(e => { const c = p.items.find(x => x.codigo === e.codigo); return c && +c.cantidad !== +e.cantidad; });
@@ -1036,7 +1038,7 @@ function pintaDet(){
     if(rol.admin && p.estado === 'Aprobada') h += `<div class="row right">${reab ? '<button class="btn" id="dReabrir">Volver a revisar</button>' : ''}${usaTraspaso(p) ? `<input id="dTrasp" maxlength="40" placeholder="N° de traspaso *" value="${esc(p.nro_traspaso || '')}" style="max-width:180px" inputmode="numeric">` : ''}<input id="dRecibe" maxlength="100" placeholder="Recibido por (opcional)" style="max-width:220px"><button class="btn btn-ok" id="dEnt">Marcar entregada</button></div>`;
     else if(reab && !(esFinal() && p.estado === 'Confirmada')) h += `<div class="row right"><span class="sub" style="margin:0">¿Se confirmó o rechazó por error?</span><button class="btn" id="dReabrir">Volver a revisar</button></div>`;
   }
-  if(verPrecios()){ const vc = valorPedido(p, false), ve = p.items_entregados ? valorPedido(p, true) : null;
+  if(verCosto()){ const vc = valorPedido(p, false), ve = p.items_entregados ? valorPedido(p, true) : null;
     h += `<div class="valor-det"><span>${p.estado === 'Enviada' ? 'Valor de lo pedido' : 'Valor confirmado'}: <strong>${fBs(vc.total)}</strong></span>${ve ? `<span>Valor entregado: <strong>${fBs(ve.total)}</strong> <span class="chip alerta">−${fBs(vc.total - ve.total)}</span></span>` : ''}${vc.sin ? `<span class="sub" style="margin:0">${plural(vc.sin, 'insumo sin precio cargado', 'insumos sin precio cargado')}</span>` : ''}${p.precios ? `<span class="sub" style="margin:0">${esHist(p) ? 'Costos del traspaso' : 'Precios al momento de confirmar'}</span>` : ''}</div>`; }
   $('detBody').innerHTML = h;
   pintaEntResumen();
