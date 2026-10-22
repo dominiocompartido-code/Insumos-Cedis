@@ -638,7 +638,7 @@ function vEntregar(){
   const muelles = [...new Set(UL.map(u => u.muelle || 'SIN'))].sort();
   const n = l.filter(p => sel.has(p.id)).length;
   return bloqueAvisos(a => a.tab === 'entregar') + `<section class="panel"><div class="panel-head"><div><h2>Aprobadas por entregar</h2><p class="sub">${rol.admin ? 'La confirmación más antigua primero. Filtre por muelle, marque las que salieron y regístrelas juntas.' : 'Solicitudes confirmadas que Logística CEDIS todavía no entregó, la más antigua primero. Solo consulta.'}</p></div>
-    <div class="row">${rol.admin ? '' : '<!--'}<button class="btn btn-sm" id="btnPlantTrasp" title="Excel con las solicitudes por entregar, para completar el N° de traspaso">⬇ Plantilla de traspasos</button><button class="btn btn-sm btn-primary" id="btnSubirTrasp">⬆ Subir traspasos (Excel)</button><input type="file" id="fileTrasp" accept=".xlsx,.xls,.csv" hidden>${rol.admin ? '' : '-->'}
+    <div class="row">${rol.admin ? '' : '<!--'}<button class="btn btn-sm" id="btnPlantTrasp" title="Excel ORIGEN · DESTINO · SKU · CANTIDAD · PRIORIDAD con los materiales de las solicitudes por entregar, para generar los traspasos">⬇ Plantilla de traspasos</button><button class="btn btn-sm btn-primary" id="btnSubirTrasp">⬆ Subir traspasos (Excel)</button><input type="file" id="fileTrasp" accept=".xlsx,.xls,.csv" hidden>${rol.admin ? '' : '-->'}
     <select id="fEnt" style="width:auto"><option value="TODOS">Todos los muelles</option>${muelles.map(m => `<option value="${m}" ${fEnt === m ? 'selected' : ''}>${m === 'SIN' ? 'Sin muelle' : m}</option>`).join('')}</select></div></div>
     ${rol.admin ? '' : '<!--'}<div class="acciones ${n ? 'on' : ''}"><span><strong>${n}</strong> seleccionadas</span>${n ? '<button class="btn btn-sm" id="btnLimpiarSel">Quitar selección</button>' : ''}<input id="recVarios" maxlength="100" placeholder="Recibido por (opcional)" style="max-width:220px"><button class="btn btn-ok" id="btnEntVarios" ${n ? '' : 'disabled'}>Marcar entregadas</button></div>${rol.admin ? '' : '-->'}
     ${tabla(l, ['codigo','unidad','muelle','aprob','enviada','items','traspaso','avance'], 'No hay solicitudes confirmadas pendientes de entrega.', rol.admin)}</section>`;
@@ -1170,22 +1170,27 @@ async function confirmarVarios(btn){
 }
 // ---------- carga masiva de N° de traspaso desde Excel ----------
 function plantillaTraspasos(){
+  // Formato para generar los traspasos en el sistema: una fila por material solicitado
   const l = pedidos.filter(p => p.estado === 'Aprobada' && usaTraspaso(p)).sort((a,b) => ordenApert(a,b) || ordU(U[a.unidad_id] || {}) - ordU(U[b.unidad_id] || {}));
   if(!l.length){ toast('No hay solicitudes por entregar.'); return; }
-  const W = XL.libro(), h = W.hoja('Traspasos'), cab = {b:true, sz:10, color:'FFFFFFFF', fill:'FF1F3864', h:'center', v:'center', wrap:true, bt:'thin', bb:'thin', bl:'thin', br:'thin'};
-  ['N° solicitud','Cód. sala','Sala / área','Muelle','Ítems','N° traspaso'].forEach((t, c) => h.set(0, c, t, cab));
-  [13,11,38,10,7,16].forEach((w, c) => h.anchos[c] = w);
-  l.forEach((p, r) => { const u = U[p.unidad_id] || {}, s = (hh, ex = {}) => ({sz:10, h:hh, v:'center', bt:'thin', bb:'thin', bl:'thin', br:'thin', ...ex});
-    h.set(r + 1, 0, p.codigo, s('center')); h.set(r + 1, 1, u.codigo_sala || '', s('center')); h.set(r + 1, 2, u.nombre || p.unidad_id, s('left')); h.set(r + 1, 3, u.muelle || '', s('center')); h.set(r + 1, 4, p.items.length, s('center')); h.set(r + 1, 5, p.nro_traspaso || '', s('center', {fill:'FFFFF2CC'})); });
-  h.freeze = 1; h.filtro = `A1:F${l.length + 1}`;
-  descargar(W.generar(), `Traspasos_por_entregar_${hoyISO()}.xlsx`);
+  const num = v => { const t = String(v ?? '').trim(); return /^\d+$/.test(t) ? +t : t; };
+  const W = XL.libro(), h = W.hoja('Hoja1'), cab = {b:true}, faltan = new Set();
+  ['ORIGEN','DESTINO','SKU','CANTIDAD','PRIORIDAD'].forEach((t, c) => h.set(0, c, t, cab));
+  [11,11,11,11,11].forEach((w, c) => h.anchos[c] = w);
+  let r = 1;
+  l.forEach(p => { const u = U[p.unidad_id] || {}, ori = ALMS.find(a => a.id === almDeU(p.unidad_id))?.codigo || '';
+    const des = u.codigo_sala || (u.tipo === 'Oficina central' ? '05486' : ''); if(!des) faltan.add(u.nombre || p.unidad_id);
+    p.items.forEach(i => { if(!(+i.cantidad > 0)) return;
+      h.set(r, 0, num(ori)); h.set(r, 1, num(des)); h.set(r, 2, num(i.codigo)); h.set(r, 3, +i.cantidad); h.set(r, 4, 100); r++; }); });
+  descargar(W.generar(), `TRAS_INSUMOS_${hoyISO()}.xlsx`);
+  if(faltan.size) toast(`Sin código de sala (DESTINO vacío): ${[...faltan].join(', ')}`);
 }
 function cargarLibXLSX(){
   if(window.XLSX) return Promise.resolve();
   return new Promise((ok, no) => { const sc = document.createElement('script'); sc.src = 'https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js'; sc.onload = ok; sc.onerror = () => no(new Error('No se pudo cargar el lector de Excel. Revise su conexión.')); document.head.append(sc); });
 }
 let impTr = null;
-const usaTraspaso = p => (U[p.unidad_id]?.tipo || '') !== 'CEDIS';
+const usaTraspaso = p => { const u = U[p.unidad_id] || {}; return u.tipo !== 'CEDIS' || !!u.codigo_sala; };
 const normCod = v => String(v ?? '').trim().replace(/\.0+$/, '').replace(/^0+(?=\d)/, '');
 function detectarColumnas(cab, filas){
   const n = cab.map(c => normTxt(String(c || '')));
