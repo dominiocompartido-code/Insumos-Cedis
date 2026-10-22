@@ -14,13 +14,16 @@ const FASES = [['envio','Envío de solicitudes','Sucursales y áreas'],['aprob',
 function faseActual(c){ const f = fases(c), t = hoy(); for(const [k] of FASES) if(t >= f[k][0] && t < f[k][1]) return k; return t < f.envio[0] ? 'antes' : 'cerrado'; }
 const diasHasta = fin => Math.max(0, Math.ceil((fin - hoy()) / 864e5)); // días que quedan, contando hoy
 const fCorta = d => `${d.getDate()}/${d.getMonth() + 1}`;
-const tarde = p => { if(p.tipo === 'Apertura') return false; return new Date(p.ts) >= fases(cicloDe(p.ts)).envio[1]; };
-const delCiclo = (c, filtro = () => true) => pedidos.filter(p => cicloDe(p.ts) === c && p.tipo !== 'Apertura' && filtro(p));
+// Históricos (cargados del reporte de traspasos): solo tienen la fecha real del traspaso; su ciclo es el mes del traspaso
+const esHist = p => p.origen === 'historico';
+const cicloP = p => { if(esHist(p) && p.entregado_ts){ const d = new Date(p.entregado_ts); return d.getFullYear() * 100 + d.getMonth() + 1; } return cicloDe(p.ts); };
+const tarde = p => { if(p.tipo === 'Apertura' || esHist(p)) return false; return new Date(p.ts) >= fases(cicloDe(p.ts)).envio[1]; };
+const delCiclo = (c, filtro = () => true) => pedidos.filter(p => cicloP(p) === c && p.tipo !== 'Apertura' && filtro(p));
 const cicloMas = c => { let y = Math.floor(c / 100), m = c % 100 + 1; if(m > 12){ m = 1; y++; } return y * 100 + m; };
 // primer ciclo en que la sala debía pedir: el de su apertura si abrió antes del cierre del envío (día 20), si no el siguiente
 const primerCiclo = u => { if(!u || !u.creada_ts) return 0; const t = Date.parse(u.creada_ts), c = cicloDe(t); return t < fases(c).envio[1] ? c : cicloMas(c); };
 const vigenteEn = (u, c) => c >= primerCiclo(u);
-const delCicloTodos = (c, filtro = () => true) => pedidos.filter(p => cicloDe(p.ts) === c && filtro(p));
+const delCicloTodos = (c, filtro = () => true) => pedidos.filter(p => cicloP(p) === c && filtro(p));
 function sinEnviar(c, gids){ const con = new Set(delCicloTodos(c).map(p => p.unidad_id)); return UL.filter(u => u.activa && vigenteEn(u, c) && (!gids || gids.includes(u.grupo_id)) && !con.has(u.id)); }
 const plural = (n, s, p) => `${n} ${n === 1 ? s : p}`;
 
@@ -79,7 +82,7 @@ function alertas(){
     if(fa === 'compras'){ const conf = delCiclo(c, p => p.estado === 'Confirmada' || p.estado === 'Aprobada' || p.estado === 'Entregada').length; A.push({nivel:'info', titulo:'Fase de compras', texto:`${plural(conf, 'solicitud aprobada', 'solicitudes aprobadas')} en el ciclo. Genere el reporte de dotación en Preparación.`, tab:'preparacion'}); }
     const prev = cicloMenos(c, 1), conDot = new Set(delCicloTodos(prev, p => p.estado === 'Entregada').map(p => p.unidad_id));
     const nodot = UL.filter(u => u.activa && u.tipo === 'Sucursal' && vigenteEn(u, prev) && !conDot.has(u.id)).length;
-    if(false && nodot && pedidos.some(p => cicloDe(p.ts) === prev)) A.push({nivel:'info', titulo:`${plural(nodot, 'sala no fue dotada', 'salas no fueron dotadas')} en ${nombreCiclo(prev)}`, texto:'Vea el detalle en Cobertura.', tab:'cobertura'});
+    if(false && nodot && pedidos.some(p => cicloP(p) === prev)) A.push({nivel:'info', titulo:`${plural(nodot, 'sala no fue dotada', 'salas no fueron dotadas')} en ${nombreCiclo(prev)}`, texto:'Vea el detalle en Cobertura.', tab:'cobertura'});
   }
   return A;
 }
@@ -113,7 +116,7 @@ function estadoCiclo(uid, c){
   const l = delCicloTodos(c, p => p.unidad_id === uid); if(!l.length) return null;
   for(const e of ['Entregada','Aprobada','Confirmada','Enviada','Rechazada']) if(l.some(p => p.estado === e)) return e;
 }
-const inicioDatos = () => pedidos.length ? Math.min(...pedidos.map(p => cicloDe(p.ts))) : cicloActivo();
+const inicioDatos = () => pedidos.length ? Math.min(...pedidos.map(cicloP)) : cicloActivo();
 const contarSinDotar = (est, ciclos, ini) => est.slice(0, 5).filter((e, i) => ciclos[i] >= ini && e !== 'Entregada').length;
 // Logística, Consulta y Jefatura (Helen, Hubert) ven la cobertura de todas las salas
 const verTodoCob = () => rol.admin || !!rol.consulta || (typeof esJefatura === 'function' && esJefatura());
@@ -128,9 +131,9 @@ function indicadoresCiclo(c, us){
   const est = vig.map(u => estadoCiclo(u.id, c));
   const dot = est.filter(e => e === 'Entregada').length, pidio = est.filter(Boolean).length;
   const ids = new Set(vig.map(u => u.id)), ped = delCiclo(c, p => ids.has(p.unidad_id));
-  const fin = fases(c).envio[1].getTime(), aTiempo = ped.filter(p => p.ts < fin).length;
+  const fin = fases(c).envio[1].getTime(), pedV = ped.filter(p => !esHist(p)), aTiempo = pedV.filter(p => p.ts < fin).length;
   const conf = ped.filter(p => p.confirmado_ts), ent = ped.filter(p => p.entregado_ts && p.confirmado_ts);
-  return {c, total:vig.length, dot, pidio, cob: vig.length ? dot / vig.length * 100 : null, ped, aTiempo, pctTiempo: ped.length ? aTiempo / ped.length * 100 : null,
+  return {c, total:vig.length, dot, pidio, cob: vig.length ? dot / vig.length * 100 : null, ped, pedV, aTiempo, pctTiempo: pedV.length ? aTiempo / pedV.length * 100 : null,
     dConf: prom(conf.map(p => diasEntre(p.ts, p.confirmado_ts))), dEnt: prom(ent.map(p => diasEntre(p.confirmado_ts, p.entregado_ts))), conf};
 }
 const valorSalaCiclo = (uid, c) => delCiclo(c, p => p.unidad_id === uid && (p.estado === 'Confirmada' || p.estado === 'Aprobada' || p.estado === 'Entregada')).reduce((a, p) => a + valorPedido(p, p.estado === 'Entregada').total, 0);
@@ -190,7 +193,7 @@ function vCobertura(){
       <button class="btn btn-sm" id="btnExpCob" style="align-self:flex-end">⬇ Excel por sala</button></div></div>
     <div class="ind-grid k4">
       ${kpi('Cobertura', A.cob == null ? '—' : f1c(A.cob) + ' %', deltaCob(A.cob, B.cob, B.c), `${A.dot} de ${A.total} salas dotadas · ${A.pidio} pidieron`)}
-      ${kpi('Enviaron a tiempo', A.pctTiempo == null ? '—' : f1c(A.pctTiempo) + ' %', deltaCob(A.pctTiempo, B.pctTiempo, B.c), `hasta el día ${fases(c).envio[1].getDate() - 1} · ${A.aTiempo} de ${A.ped.length} solicitudes`)}
+      ${kpi('Enviaron a tiempo', A.pctTiempo == null ? '—' : f1c(A.pctTiempo) + ' %', deltaCob(A.pctTiempo, B.pctTiempo, B.c), `hasta el día ${fases(c).envio[1].getDate() - 1} · ${A.aTiempo} de ${A.pedV.length} solicitudes${A.pedV.length < A.ped.length ? ' (sin históricos)' : ''}`)}
       ${kpi('Días para confirmar', f1c(A.dConf), deltaCob(A.dConf, B.dConf, B.c, false, ' días'), 'promedio desde el envío · meta 5 días', A.dConf > 5 ? 'alerta' : '')}
       ${kpi('Días para entregar', f1c(A.dEnt), deltaCob(A.dEnt, B.dEnt, B.c, false, ' días'), `promedio desde la confirmación${porEnt ? ` · ${plural(porEnt, 'sala por entregar', 'salas por entregar')}` : ''}`)}
     </div>

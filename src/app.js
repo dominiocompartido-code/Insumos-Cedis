@@ -514,7 +514,7 @@ function tabla(lista, cols, vacio, conSel){
     unidad: ['Sucursal / área', p => `<td><strong>${esc(U[p.unidad_id]?.nombre || p.unidad_id)}</strong><div class="sub" style="margin:0">${esc(titulo(p.solicitante))}</div></td>`],
     aprob: ['Aprueba', p => `<td><span class="gtag" data-g="${esc(grupoDe(p))}">${esc(G[grupoDe(p)]?.aprobador || '')}</span></td>`],
     muelle: ['Muelle', p => `<td class="num">${esc(U[p.unidad_id]?.muelle || '–')}</td>`],
-    enviada: ['Enviada', p => `<td>${fFH(p.ts)}<div class="sub" style="margin:0">${hace(p.ts)}${p.tipo === 'Apertura' ? '' : ` · <span title="Mes en que se usan los insumos">ciclo ${esc(nombreCiclo(cicloDe(p.ts)).split(' ')[0].toLowerCase())}</span>`}</div></td>`],
+    enviada: ['Enviada', p => esHist(p) ? `<td><span class="sub">Histórico</span><div class="sub" style="margin:0">ciclo ${esc(nombreCiclo(cicloP(p)).split(' ')[0].toLowerCase())}</div></td>` : `<td>${fFH(p.ts)}<div class="sub" style="margin:0">${hace(p.ts)}${p.tipo === 'Apertura' ? '' : ` · <span title="Mes en que se usan los insumos">ciclo ${esc(nombreCiclo(cicloP(p)).split(' ')[0].toLowerCase())}</span>`}</div></td>`],
     items: ['Ítems', p => `<td class="num">${p.items.length}</td>`],
     valor: ['Valor', p => { const v = valorPedido(p, p.estado === 'Entregada'); return `<td class="num" style="white-space:nowrap">${v.total ? fBs(v.total) : '–'}${v.sin ? `<div class="sub" style="margin:0" title="Insumos sin precio cargado">${v.sin} sin precio</div>` : ''}</td>`; }],
     estado: ['Estado', p => `<td>${chip(p.estado)}${p.origen === 'historico' ? ' <span class="chip" title="Cargado desde el reporte de traspasos">histórico</span>' : ''}${p.items_original ? ' <span class="chip ajuste">ajustada</span>' : ''}${p.items_entregados ? ' <span class="chip alerta">entrega parcial</span>' : ''}${p.tipo === 'Apertura' ? ` <span class="chip apertura">Apertura${p.fecha_apertura && p.estado !== 'Entregada' ? ' · ' + esc(txtAbre(p.fecha_apertura)) : ''}</span>` : ''}${tarde(p) ? ' <span class="chip">fuera de plazo</span>' : ''}${p.estado === 'Enviada' && horas(Date.now() - p.ts) > 48 ? ' <span class="chip alerta">+2 días</span>' : ''}</td>`],
@@ -544,7 +544,7 @@ function kpis(lista){
 }
 // el Resumen muestra el ciclo actual (y lo que siga pendiente de ciclos anteriores)
 const PEND = ['Enviada','Confirmada','Aprobada'];
-const delCicloActual = () => { const c = cicloActivo(); return pedidos.filter(p => cicloDe(p.ts) === c || PEND.includes(p.estado)); };
+const delCicloActual = () => { const c = cicloActivo(); return pedidos.filter(p => cicloP(p) === c || PEND.includes(p.estado)); };
 function mapa(grupos){
   const ult = {}; delCicloActual().forEach(p => { if(!ult[p.unidad_id] || ult[p.unidad_id].ts < p.ts) ult[p.unidad_id] = p; });
   return `<div class="leyenda"><span><i></i>Sin solicitud</span><span><i class="Enviada"></i>Enviada</span><span><i class="Confirmada"></i>Por aprobación final</span><span><i class="Aprobada"></i>Aprobada</span><span><i class="Entregada"></i>Entregada</span><span><i class="Rechazada"></i>Rechazada</span></div><div class="mapa">` +
@@ -647,7 +647,7 @@ let fPrep = 'TODOS', fPrepCiclo = null, fPrepAlc = 'todo';
 // Reporte y preparación: solicitudes Confirmadas (no entregadas) cuya confirmación cae en el mes elegido
 const mesHoy = () => { const d = hoy(); return d.getFullYear() * 100 + d.getMonth() + 1; };
 const mesConf = p => { if(!p.confirmado_ts) return 0; const d = new Date(p.confirmado_ts); return d.getFullYear() * 100 + d.getMonth() + 1; };
-const enMesPrep = p => p.estado === 'Aprobada' && cicloDe(p.ts) === (fPrepCiclo || cicloActivo());
+const enMesPrep = p => p.estado === 'Aprobada' && cicloP(p) === (fPrepCiclo || cicloActivo());
 const MUELLES_ALL = ['DESP-01','DESP-02','DESP-03','DESP-04','DESP-05','SIN'];
 function datosPrep(){
   fPrepCiclo ||= cicloActivo();
@@ -674,10 +674,10 @@ function vPreparacion(){
       : '<tr><td colspan="11" class="empty">Nada pendiente de preparar.</td></tr>') + '</tbody></table></div></section>';
 }
 let fTodEst = 'TODOS', fTodGr = 'TODOS', fTodQ = '', fTodMes = 'TODOS';
-const selMes = (id, val) => { const ms = [...new Set(pedidos.map(p => cicloDe(p.ts)))].sort((a, b) => b - a); return `<select id="${id}" style="width:auto" title="Ciclo: mes en que se usan los insumos (se pide el mes anterior)"><option value="TODOS">Todos los ciclos</option>${ms.map(m => `<option value="${m}" ${String(val) === String(m) ? 'selected' : ''}>${esc(nombreCiclo(m))}</option>`).join('')}</select>`; };
+const selMes = (id, val) => { const ms = [...new Set(pedidos.map(cicloP))].sort((a, b) => b - a); return `<select id="${id}" style="width:auto" title="Ciclo: mes en que se usan los insumos (se pide el mes anterior)"><option value="TODOS">Todos los ciclos</option>${ms.map(m => `<option value="${m}" ${String(val) === String(m) ? 'selected' : ''}>${esc(nombreCiclo(m))}</option>`).join('')}</select>`; };
 function vTodos(){
   const q = fTodQ.toLowerCase();
-  const l = pedidos.filter(p => (fTodMes === 'TODOS' || cicloDe(p.ts) === +fTodMes) && (fTodEst === 'TODOS' || p.estado === fTodEst) && (fTodGr === 'TODOS' || grupoDe(p) === fTodGr) && (!q || p.codigo.toLowerCase().includes(q) || (U[p.unidad_id]?.nombre || '').toLowerCase().includes(q) || (p.nro_traspaso || '').toLowerCase().includes(q)));
+  const l = pedidos.filter(p => (fTodMes === 'TODOS' || cicloP(p) === +fTodMes) && (fTodEst === 'TODOS' || p.estado === fTodEst) && (fTodGr === 'TODOS' || grupoDe(p) === fTodGr) && (!q || p.codigo.toLowerCase().includes(q) || (U[p.unidad_id]?.nombre || '').toLowerCase().includes(q) || (p.nro_traspaso || '').toLowerCase().includes(q)));
   return `<section class="panel"><div class="panel-head"><div><h2>Todas las solicitudes</h2><p class="sub">${l.length} de ${pedidos.length}${l.length > 300 ? ' · se muestran las 300 más recientes' : ''}</p></div>
     <div class="row"><input id="fTodQ" placeholder="Buscar sucursal, N° o traspaso…" value="${esc(fTodQ)}" style="width:200px">${selMes('fTodMes', fTodMes)}${selEstado('fTodEst', fTodEst)}${selGrupo('fTodGr', fTodGr)}</div></div>
     ${tabla(l.slice(0,300), ['codigo','unidad','aprob','enviada','items','estado','avance'], 'Ninguna solicitud coincide.')}</section>`;
@@ -991,7 +991,8 @@ function pintaDet(){
   const iR = p.aprobado_por && rech ? 2 : 1;
   const paso = (n, ts, i) => { const cls = rech && i === iR ? 'bad' : rech && i > iR ? '' : i <= nivel ? 'done' : i === nivel + 1 ? 'now' : '';
     return `<li class="${cls}"><b>${rech && i === iR ? 'Rechazada' : n}</b>${(cls === 'done' || cls === 'bad') && ts ? fFH(ts) : cls === 'now' ? 'En espera' : 'Pendiente'}</li>`; };
-  let h = `<ol class="steps">${paso('Enviada', p.ts, 0)}${paso('Confirmada', p.confirmado_ts, 1)}${paso('Aprobación final', p.aprobado_ts, 2)}${paso('Entregada', p.entregado_ts, 3)}</ol>
+  let h = esHist(p) ? `<div class="notice info">Histórico cargado desde el reporte de traspasos: solo se conoce la fecha del traspaso (<strong>${new Date(p.entregado_ts).toLocaleDateString('es-BO')}</strong>, ciclo ${esc(nombreCiclo(cicloP(p)))}).</div>` : `<ol class="steps">${paso('Enviada', p.ts, 0)}${paso('Confirmada', p.confirmado_ts, 1)}${paso('Aprobación final', p.aprobado_ts, 2)}${paso('Entregada', p.entregado_ts, 3)}</ol>`;
+  h += `
     <div class="meta"><div><strong>${esc(u.tipo || 'Unidad')}:</strong> ${esc(u.nombre)}</div><div><strong>Solicitó:</strong> ${esc(titulo(p.solicitante))}${p.enviado_por ? ` <span class="sub">(${esc(p.enviado_por)})</span>` : ''}</div><div><strong>Aprueba:</strong> ${esc(G[u.grupo_id]?.aprobador || '')}</div>
     ${u.muelle ? `<div><strong>Muelle:</strong> ${esc(u.muelle)}</div>` : ''}${p.nro_traspaso ? `<div><strong>N° de traspaso:</strong> <span class="mono">${esc(p.nro_traspaso)}</span></div>` : ''}<div><strong>Estado:</strong> ${chip(p.estado)}${p.tipo === 'Apertura' ? ' <span class="chip apertura">Apertura</span>' : ''}</div>${p.tipo === 'Apertura' ? `<div><strong>Inauguración:</strong> ${p.fecha_apertura ? esc(fDia(p.fecha_apertura)) + ' · ' + esc(txtAbre(p.fecha_apertura)) : 'sin fecha'}</div>` : ''}${p.recibido_por ? `<div><strong>Recibió:</strong> ${esc(p.recibido_por)}</div>` : ''}</div>`;
   if(rech) h += `<div class="notice bad"><strong>Motivo del rechazo:</strong> ${esc(p.motivo_rechazo)}</div>`;
