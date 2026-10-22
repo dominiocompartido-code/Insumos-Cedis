@@ -2188,6 +2188,7 @@ function detectarColumnas(cab, filas){
   if(tr >= 0){ const it = filas.filter(f => !String(f[tr] ?? '').trim());
     let best = 0; cab.forEach((_, i) => { if(i === tr || i === sa || i === cq) return; const k = it.filter(f => /^\d{3,7}$/.test(String(f[i] ?? '').trim())).length; if(k > best){ best = k; ci = i; } });
     if(best < 1) ci = -1; }
+  if(ci < 0 && tr < 0) ci = busca(/sku|cod.*(prod|art|item|mat)|^codigo$|^cod\.?$/, /sala|destino|origen/);
   return {tr, so, sa, ci, cq, de};
 }
 function itemsDeTraspasos(datos, col){
@@ -2207,13 +2208,13 @@ function compararTraspaso(p, its){
 }
 function notaTraspaso(tr, cmp){
   const fq = n => (+n).toLocaleString('es-BO', {maximumFractionDigits:2});
-  return (`Según traspaso ${tr}: ` + [
+  return ((tr ? `Según traspaso ${tr}: ` : 'Según archivo de envío: ') + [
     cmp.menos.length ? 'de menos: ' + cmp.menos.map(x => `${x.d} (${fq(x.env)} de ${fq(x.conf)})`).join(', ') : '',
     cmp.mas.length ? 'de más: ' + cmp.mas.map(x => `${x.d} (${fq(x.env)} de ${fq(x.conf)})`).join(', ') : '',
     cmp.extra.length ? 'no solicitados: ' + cmp.extra.map(x => `${x.d} (${fq(x.env)})`).join(', ') : ''].filter(Boolean).join('; ')).slice(0, 500);
 }
-function emparejar(f, col){
-  const tr = String(f[col.tr] ?? '').trim(); if(!tr) return {estado:'vacio'};
+function emparejar(f, col, sinTr){
+  const tr = sinTr ? '' : String(f[col.tr] ?? '').trim(); if(!tr && !sinTr) return {estado:'vacio'};
   const pend = pedidos.filter(p => p.estado === 'Aprobada' && usaTraspaso(p));
   if(col.so >= 0){ const v = String(f[col.so] ?? '').trim().toUpperCase().replace(/^P-?/, ''); if(v){ const p = pedidos.find(x => x.codigo.replace(/^P-?/, '') === v.padStart(4, '0') || x.codigo.replace(/^P-?/, '') === v); if(p) return {estado: p.estado === 'Aprobada' || p.estado === 'Entregada' ? 'ok' : 'noconf', p, tr}; } }
   if(col.sa >= 0){ const raw = String(f[col.sa] ?? '').trim(); if(raw){ const c = normCod(raw), q = normTxt(raw);
@@ -2245,9 +2246,15 @@ async function leerTraspasos(file){
 function pintarImpTr(){
   const {cab, datos, col} = impTr;
   const opt = (k, txt) => `<label class="f">${txt}<select data-colimp="${k}"><option value="-1">— ninguna —</option>${cab.map((c,i) => `<option value="${i}" ${col[k] === i ? 'selected' : ''}>${esc(String(c) || 'Columna ' + (i + 1))}</option>`).join('')}</select></label>`;
-  impTr.res = col.tr < 0 ? [] : datos.map(f => ({f, m: emparejar(f, col)})).filter(x => x.m.estado !== 'vacio');
+  // Formato por línea (ORIGEN · DESTINO · SKU · CANTIDAD · PRIORIDAD): sin N° de traspaso, se agrupa por destino
+  const plano = col.tr < 0 && col.sa >= 0 && col.ci >= 0 && col.cq >= 0; impTr.plano = plano;
+  if(plano){ const gr = new Map();
+    datos.forEach(f => { const d = String(f[col.sa] ?? '').trim(); if(!d) return; const k = normTxt(d); if(!gr.has(k)) gr.set(k, {f, its:[]});
+      const c = normCod(f[col.ci]), q = parseFloat(String(f[col.cq] ?? '').replace(/,/g, '')); if(/^\d{3,7}$/.test(c) && q > 0) gr.get(k).its.push({codigo:c, cantidad:q, desc:String(col.de >= 0 ? f[col.de] : '').trim()}); });
+    impTr.res = [...gr.values()].map(g => ({f:g.f, its:g.its, m: emparejar(g.f, col, true)}));
+  } else impTr.res = col.tr < 0 ? [] : datos.map(f => ({f, m: emparejar(f, col)})).filter(x => x.m.estado !== 'vacio');
   { const vistos = {}; impTr.res.forEach(x => { if(x.m.p && x.m.estado === 'ok'){ const k = x.m.p.id; if(vistos[k]){ vistos[k].m.tr = [...new Set((vistos[k].m.tr + ' / ' + x.m.tr).split(' / '))].join(' / ').slice(0, 40); x.m = {...x.m, estado:'unido', destino:vistos[k].m.p}; } else vistos[k] = x; } }); }
-  const itsDe = itemsDeTraspasos(datos, col), conItems = col.ci >= 0 && col.cq >= 0;
+  const itsDe = plano ? new Map(impTr.res.map(x => [x.f, x.its])) : itemsDeTraspasos(datos, col), conItems = col.ci >= 0 && col.cq >= 0;
   impTr.conItems = conItems;
   if(conItems){ const acum = new Map();
     impTr.res.forEach(x => { const its = itsDe.get(x.f) || []; const pid = x.m.estado === 'unido' ? x.m.destino.id : x.m.p?.id; if(!pid) return; if(!acum.has(pid)) acum.set(pid, []); acum.get(pid).push(...its); });
@@ -2257,20 +2264,21 @@ function pintarImpTr(){
   const cmpHtml = c => !c ? '' : c.igual ? ' <span class="chip Entregada">Coincide con lo confirmado</span>' : ` <details class="tr-dif"><summary><span class="chip alerta">${[c.menos.length ? plural(c.menos.length, 'de menos', 'de menos') : '', c.mas.length ? c.mas.length + ' de más' : '', c.extra.length ? plural(c.extra.length, 'no solicitado', 'no solicitados') : ''].filter(Boolean).join(' · ')}</span></summary><ul>${c.menos.map(x => `<li>${esc(x.d)}: envía <strong>${fq(x.env)}</strong> de ${fq(x.conf)}</li>`).join('')}${c.mas.map(x => `<li>${esc(x.d)}: envía <strong>${fq(x.env)}</strong>, confirmado ${fq(x.conf)}</li>`).join('')}${c.extra.map(x => `<li>${esc(x.d)} (${esc(x.codigo)}): <strong>${fq(x.env)}</strong>, no estaba en la solicitud</li>`).join('')}</ul></details>`;
   const etq = {unido:'<span class="chip">Se suma al de arriba</span>', ok:'<span class="chip Entregada">Se asigna</span>', varias:'<span class="chip ajuste">Varias pendientes</span>', noconf:'<span class="chip alerta">No está confirmada</span>', sinpend:'<span class="chip alerta">Sin solicitud por entregar</span>', nosala:'<span class="chip alerta">No se encontró</span>'};
   $('trBody').innerHTML = `<p class="sub" style="margin:0">Archivo: <strong>${esc(impTr.nombre)}</strong> · ${plural(datos.length, 'fila', 'filas')}. Revise qué columna es cada dato.</p>
-    <div class="grid g3">${opt('tr', 'N° de traspaso *')}${opt('so', 'N° de solicitud')}${opt('sa', 'Código o nombre de sala')}${opt('ci', 'Código de producto')}${opt('cq', 'Cantidad del producto')}${opt('de', 'Descripción')}</div>
+    ${plano ? '<div class="notice">Archivo por línea (destino · código · cantidad): se agrupa por destino y se compara con la solicitud aprobada de cada sala. No trae N° de traspaso; puede agregarlo después en cada solicitud.</div>' : ''}
+    <div class="grid g3">${opt('tr', plano ? 'N° de traspaso (opcional)' : 'N° de traspaso *')}${opt('so', 'N° de solicitud')}${opt('sa', 'Código o nombre de sala')}${opt('ci', 'Código de producto')}${opt('cq', 'Cantidad del producto')}${opt('de', 'Descripción')}</div>
     ${conItems ? '' : '<p class="sub" style="margin:0">Sin código de producto y cantidad no se puede comparar lo enviado con lo confirmado.</p>'}
-    ${col.tr < 0 ? '<div class="notice bad">Elija la columna del N° de traspaso.</div>' : col.so < 0 && col.sa < 0 ? '<div class="notice bad">Elija la columna de N° de solicitud o la de sala, para saber a qué solicitud va cada traspaso.</div>' : `
-    <div class="tbl-wrap" style="max-height:46vh;overflow:auto"><table><thead><tr><th>N° traspaso</th><th>En el Excel</th><th>Se asigna a</th><th>Resultado</th></tr></thead><tbody>${impTr.res.map((x, i) => { const m = x.m;
+    ${col.tr < 0 && !plano ? '<div class="notice bad">Elija la columna del N° de traspaso.</div>' : col.so < 0 && col.sa < 0 ? '<div class="notice bad">Elija la columna de N° de solicitud o la de sala, para saber a qué solicitud va cada traspaso.</div>' : `
+    <div class="tbl-wrap" style="max-height:46vh;overflow:auto"><table><thead><tr><th>${plano ? 'Líneas' : 'N° traspaso'}</th><th>En el Excel</th><th>Se asigna a</th><th>Resultado</th></tr></thead><tbody>${impTr.res.map((x, i) => { const m = x.m;
       const dest = m.estado === 'unido' ? `<strong>${esc(m.destino.codigo)}</strong> · ${esc(U[m.destino.unidad_id]?.nombre || '')}` : m.estado === 'varias' ? `<select data-impvar="${i}">${m.cand.map(p => `<option value="${esc(p.id)}" ${m.p && m.p.id === p.id ? 'selected' : ''}>${esc(p.codigo)} · ${fFH(p.confirmado_ts)}${p.nro_traspaso ? ' (ya tiene ' + esc(p.nro_traspaso) + ')' : ''}</option>`).join('')}</select>` : m.p ? `<strong>${esc(m.p.codigo)}</strong> · ${esc(U[m.p.unidad_id]?.nombre || '')}${m.p.nro_traspaso && m.p.nro_traspaso !== m.tr ? ` <span class="sub">(reemplaza ${esc(m.p.nro_traspaso)})</span>` : ''}` : '<span class="sub">–</span>';
-      return `<tr><td class="mono">${esc(m.tr)}</td><td>${esc([col.so >= 0 ? x.f[col.so] : '', col.sa >= 0 ? x.f[col.sa] : ''].filter(Boolean).join(' · '))}</td><td>${dest}</td><td>${etq[m.estado]}${cmpHtml(x.cmp)}</td></tr>`; }).join('') || '<tr><td colspan="4" class="empty">No hay filas con N° de traspaso.</td></tr>'}</tbody></table></div>`}
-    <label class="recordar"><input type="checkbox" id="trEntregar"> Marcar también como entregadas las que estén confirmadas${conItems ? ' (si el traspaso trae menos, se registra como entrega parcial con esas cantidades)' : ''}</label>`;
-  $('trAplicar').textContent = ok.length ? `Asignar ${plural(ok.length, 'traspaso', 'traspasos')}` : 'Nada para asignar';
+      return `<tr><td class="mono">${plano ? (x.its || []).length : esc(m.tr)}</td><td>${esc([col.so >= 0 ? x.f[col.so] : '', col.sa >= 0 ? x.f[col.sa] : ''].filter(Boolean).join(' · '))}</td><td>${dest}</td><td>${etq[m.estado]}${cmpHtml(x.cmp)}</td></tr>`; }).join('') || '<tr><td colspan="4" class="empty">No hay filas con N° de traspaso.</td></tr>'}</tbody></table></div>`}
+    <label class="recordar"><input type="checkbox" id="trEntregar" ${plano ? 'checked disabled' : ''}> ${plano ? 'Se marcan como entregadas' : 'Marcar también como entregadas las que estén confirmadas'}${conItems ? ' (si el traspaso trae menos, se registra como entrega parcial con esas cantidades)' : ''}</label>`;
+  $('trAplicar').textContent = ok.length ? (plano ? `Entregar ${plural(ok.length, 'solicitud', 'solicitudes')}` : `Asignar ${plural(ok.length, 'traspaso', 'traspasos')}`) : 'Nada para asignar';
   $('trAplicar').disabled = !ok.length;
 }
 async function aplicarTraspasos(btn){
   const ok = impTr.res.filter(x => x.m.estado === 'ok' || x.m.estado === 'varias');
   btn.disabled = true; let n = 0; const fallos = [];
-  for(const x of ok){ const {error} = await sb.rpc('guardar_traspaso', {p_id:x.m.p.id, p_nro:x.m.tr}); if(error) fallos.push(x.m.p.codigo); else { n++; x.m.p.nro_traspaso = x.m.tr; } }
+  for(const x of ok){ if(!x.m.tr) continue; const {error} = await sb.rpc('guardar_traspaso', {p_id:x.m.p.id, p_nro:x.m.tr}); if(error) fallos.push(x.m.p.codigo); else { n++; x.m.p.nro_traspaso = x.m.tr; } }
   let ent = 0;
   let parc = 0;
   if($('trEntregar').checked){ const lista = ok.filter(x => x.m.p.estado === 'Aprobada' && !fallos.includes(x.m.p.codigo));
@@ -2280,7 +2288,7 @@ async function aplicarTraspasos(btn){
       const {error} = await sb.rpc('entregar_ajustado', {p_id:p.id, p_recibido:'', p_items:p.items.map(i => ({codigo:i.codigo, cantidad: i.codigo in env ? env[i.codigo] : +i.cantidad})), p_nota:notaTraspaso(p.nro_traspaso || x.m.tr, x.cmp)});
       if(error) fallos.push(p.codigo + ' (' + errMsg(error) + ')'); else { ent++; parc++; } } }
   btn.disabled = false; $('mTrasp').hidden = true;
-  toast(`${plural(n, 'traspaso asignado', 'traspasos asignados')}${ent ? ` y ${plural(ent, 'solicitud entregada', 'solicitudes entregadas')}${parc ? ` (${parc} parcial${parc > 1 ? 'es' : ''})` : ''}` : ''}.${fallos.length ? ' No se pudo: ' + fallos.join(', ') : ''}`);
+  toast(`${impTr.plano ? '' : plural(n, 'traspaso asignado', 'traspasos asignados')}${ent ? `${impTr.plano ? '' : ' y '}${plural(ent, 'solicitud entregada', 'solicitudes entregadas')}${parc ? ` (${parc} parcial${parc > 1 ? 'es' : ''})` : ''}` : ''}.${fallos.length ? ' No se pudo: ' + fallos.join(', ') : ''}`);
   cargarPedidos();
 }
 document.addEventListener('change', e => {
