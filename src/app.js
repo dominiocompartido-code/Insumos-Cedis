@@ -510,11 +510,19 @@ function vSeguimiento(){
     ${salaUsuario() ? (misSalas().length > 1 ? `<div class="equipo-box"><span>👤 Solicitudes de ${selMisSalas('selMiSalaSeg')}</span></div>` : '') : `<label class="f">Sucursal o área${selectorUnidad('segUnidad', unidadSel)}</label>`}`;
   if(!u) return h + '<div class="notice info">Elija su sucursal o área para ver sus solicitudes.</div></section>';
   const l = pedidos.concat(anuladas).filter(p => p.unidad_id === u.id).sort((a,b) => b.ts - a.ts);
-  return h + tabla(segTodas ? l : l.slice(0, 20), ['codigo','enviada','items','estado','avance','anular'], 'Esta unidad todavía no envió solicitudes.') +
+  return h + tabla(segTodas ? l : ordenarTab(l).slice(0, 20), ['codigo','enviada','items','estado','avance','anular'], 'Esta unidad todavía no envió solicitudes.') +
     (!segTodas && l.length > 20 ? '<div class="row right"><button class="btn btn-sm" id="segVerTodas">Ver todas</button></div>' : '') + '</section>' + vNuevosSala(u);
 }
 
 // ---------- tablas comunes ----------
+// orden de las tablas de solicitudes: por pestaña, clic en el título alterna ascendente → descendente → sin orden
+const ordTab = {};
+const ORD_TAB = {codigo: p => +String(p.codigo).replace(/\D/g, '') || 0, unidad: p => normTxt(U[p.unidad_id]?.nombre || p.unidad_id), aprob: p => normTxt(G[grupoDe(p)]?.aprobador || ''), muelle: p => normTxt(U[p.unidad_id]?.muelle || '~'),
+  enviada: p => +p.ts || 0, items: p => p.items.length, valor: p => valorPedido(p, p.estado === 'Entregada').total, estado: p => ['Enviada','Confirmada','Aprobada','Entregada','Rechazada','Anulada'].indexOf(p.estado),
+  traspaso: p => +String(p.nro_traspaso || '').replace(/\D.*$/, '') || 0, avance: p => +(p.anulado_ts || p.entregado_ts || p.aprobado_ts || p.confirmado_ts || p.ts) || 0};
+document.addEventListener('click', e => { const th = e.target.closest?.('[data-ordtab]'); if(!th) return; const k = th.dataset.ordtab, o = ordTab[tab] || {};
+  ordTab[tab] = o.k === k ? (o.dir === 1 ? {k, dir:-1} : {}) : {k, dir:1}; render(); });
+const ordenarTab = l => { const o = ordTab[tab] || {}; if(!o.k || !ORD_TAB[o.k]) return l; const f = ORD_TAB[o.k]; return l.map(p => [f(p), p]).sort((a, b) => (a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0) * o.dir).map(x => x[1]); };
 function tabla(lista, cols, vacio, conSel){
   const C = {
     codigo: ['N° solicitud', p => `<td class="code">${esc(p.codigo)}</td>`],
@@ -530,9 +538,11 @@ function tabla(lista, cols, vacio, conSel){
     avance: ['Último avance', p => `<td class="sub">${p.estado === 'Anulada' ? 'Anulada ' + fFH(p.anulado_ts) : p.entregado_ts ? 'Entregada ' + fFH(p.entregado_ts) + (p.nro_traspaso ? ' · Traspaso ' + esc(p.nro_traspaso) : '') : p.estado === 'Rechazada' ? 'Rechazada ' + fFH(p.aprobado_ts || p.confirmado_ts) : p.aprobado_ts ? 'Aprobada ' + fFH(p.aprobado_ts) : p.confirmado_ts ? 'Confirmada ' + fFH(p.confirmado_ts) + ' · falta aprobación final' : 'Esperando confirmación'}</td>`],
   };
   if(verCosto() && cols.includes('items') && !cols.includes('valor')) cols = cols.flatMap(c => c === 'items' ? ['items','valor'] : [c]);
+  const o = ordTab[tab] || {};
+  if(o.k && cols.includes(o.k)) lista = ordenarTab(lista);
   if(conSel) visibles = lista.map(p => p.id);
   const todos = conSel && lista.length && lista.every(p => sel.has(p.id));
-  return `<div class="tbl-wrap"><table><thead><tr>${conSel ? `<th class="chk"><input type="checkbox" id="selTodos" ${todos ? 'checked' : ''} ${lista.length ? '' : 'disabled'} aria-label="Seleccionar todas"></th>` : ''}${cols.map(c => `<th>${C[c][0]}</th>`).join('')}</tr></thead><tbody>` +
+  return `<div class="tbl-wrap"><table><thead><tr>${conSel ? `<th class="chk"><input type="checkbox" id="selTodos" ${todos ? 'checked' : ''} ${lista.length ? '' : 'disabled'} aria-label="Seleccionar todas"></th>` : ''}${cols.map(c => ORD_TAB[c] ? `<th class="th-ord" data-ordtab="${c}" title="Ordenar">${C[c][0]}<span class="flecha${o.k === c ? ' on' : ''}">${o.k === c ? (o.dir === 1 ? '▲' : '▼') : '↕'}</span></th>` : `<th>${C[c][0]}</th>`).join('')}</tr></thead><tbody>` +
     (lista.length ? lista.map(p => `<tr class="click fila-${esc(p.estado)}${conSel && sel.has(p.id) ? ' marcada' : ''}" data-ver="${esc(p.id)}" tabindex="0">${conSel ? `<td class="chk"><input type="checkbox" data-sel="${esc(p.id)}" ${sel.has(p.id) ? 'checked' : ''} aria-label="Seleccionar ${esc(p.codigo)}"></td>` : ''}${cols.map(c => C[c][1](p)).join('')}</tr>`).join('') : `<tr><td colspan="${cols.length + (conSel ? 1 : 0)}" class="empty">${vacio}</td></tr>`) + '</tbody></table></div>';
 }
 function kpis(lista){
@@ -579,7 +589,7 @@ const coincideSala = (u, q) => { q = normTxt(q).trim(); if(!q) return true; cons
 function histGrupo(l){
   const q = normTxt(fGrupoQ).trim();
   const f = l.concat(anuladas.filter(p => rol.grupos.includes(grupoDe(p)))).filter(p => (fGrupoEst === 'TODOS' || p.estado === fGrupoEst) && (!q || normTxt(p.codigo).includes(q) || normTxt(p.nro_traspaso || '').includes(q) || coincideSala(U[p.unidad_id], fGrupoQ))).sort((a,b) => b.ts - a.ts);
-  return tabla(f.slice(0,300), ['codigo','unidad','enviada','items','estado','avance','anular'], q ? 'Ninguna solicitud coincide con la búsqueda.' : 'Sin solicitudes con este filtro.');
+  return tabla(ordenarTab(f).slice(0,300), ['codigo','unidad','enviada','items','estado','avance','anular'], q ? 'Ninguna solicitud coincide con la búsqueda.' : 'Sin solicitudes con este filtro.');
 }
 function vGrupo(){
   const gs = rol.grupos.map(id => G[id]).filter(Boolean);
@@ -687,7 +697,7 @@ function vTodos(){
   const l = pedidos.filter(p => (fTodMes === 'TODOS' || cicloP(p) === +fTodMes) && (fTodEst === 'TODOS' || p.estado === fTodEst) && (fTodGr === 'TODOS' || grupoDe(p) === fTodGr) && (!q || p.codigo.toLowerCase().includes(q) || (U[p.unidad_id]?.nombre || '').toLowerCase().includes(q) || (p.nro_traspaso || '').toLowerCase().includes(q)));
   return `<section class="panel"><div class="panel-head"><div><h2>Todas las solicitudes</h2><p class="sub">${l.length} de ${pedidos.length}${l.length > 300 ? ' · se muestran las 300 más recientes' : ''}</p></div>
     <div class="row"><input id="fTodQ" placeholder="Buscar sucursal, N° o traspaso…" value="${esc(fTodQ)}" style="width:200px">${selMes('fTodMes', fTodMes)}${selEstado('fTodEst', fTodEst)}${selGrupo('fTodGr', fTodGr)}</div></div>
-    ${tabla(l.slice(0,300), ['codigo','unidad','aprob','enviada','items','estado','avance'], 'Ninguna solicitud coincide.')}</section>`;
+    ${tabla(ordenarTab(l).slice(0,300), ['codigo','unidad','aprob','enviada','items','estado','avance'], 'Ninguna solicitud coincide.')}</section>`;
 }
 
 // ---------- configuración ----------
