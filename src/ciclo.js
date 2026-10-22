@@ -1,18 +1,20 @@
 // ---------- ciclo mensual de dotación y alertas ----------
-// Envío 10–20 · Aprobación 21–25 · Compras 26–fin de mes · Entrega 1–10 del mes siguiente
+// El ciclo se nombra por el MES DE USO (= mes del traspaso). Las salas piden un mes antes:
+// Ciclo M: envío 10–20 de M-1 · aprobación 21–25 de M-1 · compras 26–fin de M-1 · entrega 1–10 de M.
+// Una solicitud enviada del 10 de M-1 al 9 de M cuenta para el ciclo M.
 const MESES = ['enero','febrero','marzo','abril','mayo','junio','julio','agosto','septiembre','octubre','noviembre','diciembre'];
 const hoy = () => window.__HOY ? new Date(window.__HOY) : new Date();
-const cicloDe = ts => { const d = new Date(ts); return d.getFullYear() * 100 + d.getMonth() + 1; };
-function cicloActivo(){ const d = hoy(); let y = d.getFullYear(), m = d.getMonth() + 1; if(d.getDate() < 10){ m--; if(!m){ m = 12; y--; } } return y * 100 + m; }
+const cicloDe = ts => { const d = new Date(ts); let y = d.getFullYear(), m = d.getMonth() + 1; if(d.getDate() >= 10){ m++; if(m > 12){ m = 1; y++; } } return y * 100 + m; };
+function cicloActivo(){ return cicloDe(hoy()); }
 const cicloMenos = (c, k) => { let y = Math.floor(c / 100), m = c % 100 - k; while(m < 1){ m += 12; y--; } return y * 100 + m; };
 const nombreCiclo = c => { const n = MESES[c % 100 - 1]; return n[0].toUpperCase() + n.slice(1) + ' ' + Math.floor(c / 100); };
-function fases(c){ const y = Math.floor(c / 100), m = c % 100 - 1, d = (mm, dd) => new Date(y, mm, dd);
+function fases(c){ const y = Math.floor(c / 100), m = c % 100 - 2, d = (mm, dd) => new Date(y, mm, dd);
   return {envio:[d(m,10), d(m,21)], aprob:[d(m,21), d(m,26)], compras:[d(m,26), d(m+1,1)], entrega:[d(m+1,1), d(m+1,11)]}; }
 const FASES = [['envio','Envío de solicitudes','Sucursales y áreas'],['aprob','Aprobación','Supervisoras, Helen y Jefe. CEDI'],['compras','Compras','Logística CEDIS'],['entrega','Entrega a salas','Logística CEDIS']];
 function faseActual(c){ const f = fases(c), t = hoy(); for(const [k] of FASES) if(t >= f[k][0] && t < f[k][1]) return k; return t < f.envio[0] ? 'antes' : 'cerrado'; }
 const diasHasta = fin => Math.max(0, Math.ceil((fin - hoy()) / 864e5)); // días que quedan, contando hoy
 const fCorta = d => `${d.getDate()}/${d.getMonth() + 1}`;
-const tarde = p => { if(p.tipo === 'Apertura') return false; const d = new Date(p.ts).getDate(); return d > 20; };
+const tarde = p => { if(p.tipo === 'Apertura') return false; return new Date(p.ts) >= fases(cicloDe(p.ts)).envio[1]; };
 const delCiclo = (c, filtro = () => true) => pedidos.filter(p => cicloDe(p.ts) === c && p.tipo !== 'Apertura' && filtro(p));
 const cicloMas = c => { let y = Math.floor(c / 100), m = c % 100 + 1; if(m > 12){ m = 1; y++; } return y * 100 + m; };
 // primer ciclo en que la sala debía pedir: el de su apertura si abrió antes del cierre del envío (día 20), si no el siguiente

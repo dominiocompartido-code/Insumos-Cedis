@@ -678,20 +678,22 @@ ${h.cortes.length ? `<rowBreaks count="${h.cortes.length}" manualBreakCount="${h
 })();
 
 // ---------- ciclo mensual de dotación y alertas ----------
-// Envío 10–20 · Aprobación 21–25 · Compras 26–fin de mes · Entrega 1–10 del mes siguiente
+// El ciclo se nombra por el MES DE USO (= mes del traspaso). Las salas piden un mes antes:
+// Ciclo M: envío 10–20 de M-1 · aprobación 21–25 de M-1 · compras 26–fin de M-1 · entrega 1–10 de M.
+// Una solicitud enviada del 10 de M-1 al 9 de M cuenta para el ciclo M.
 const MESES = ['enero','febrero','marzo','abril','mayo','junio','julio','agosto','septiembre','octubre','noviembre','diciembre'];
 const hoy = () => window.__HOY ? new Date(window.__HOY) : new Date();
-const cicloDe = ts => { const d = new Date(ts); return d.getFullYear() * 100 + d.getMonth() + 1; };
-function cicloActivo(){ const d = hoy(); let y = d.getFullYear(), m = d.getMonth() + 1; if(d.getDate() < 10){ m--; if(!m){ m = 12; y--; } } return y * 100 + m; }
+const cicloDe = ts => { const d = new Date(ts); let y = d.getFullYear(), m = d.getMonth() + 1; if(d.getDate() >= 10){ m++; if(m > 12){ m = 1; y++; } } return y * 100 + m; };
+function cicloActivo(){ return cicloDe(hoy()); }
 const cicloMenos = (c, k) => { let y = Math.floor(c / 100), m = c % 100 - k; while(m < 1){ m += 12; y--; } return y * 100 + m; };
 const nombreCiclo = c => { const n = MESES[c % 100 - 1]; return n[0].toUpperCase() + n.slice(1) + ' ' + Math.floor(c / 100); };
-function fases(c){ const y = Math.floor(c / 100), m = c % 100 - 1, d = (mm, dd) => new Date(y, mm, dd);
+function fases(c){ const y = Math.floor(c / 100), m = c % 100 - 2, d = (mm, dd) => new Date(y, mm, dd);
   return {envio:[d(m,10), d(m,21)], aprob:[d(m,21), d(m,26)], compras:[d(m,26), d(m+1,1)], entrega:[d(m+1,1), d(m+1,11)]}; }
 const FASES = [['envio','Envío de solicitudes','Sucursales y áreas'],['aprob','Aprobación','Supervisoras, Helen y Jefe. CEDI'],['compras','Compras','Logística CEDIS'],['entrega','Entrega a salas','Logística CEDIS']];
 function faseActual(c){ const f = fases(c), t = hoy(); for(const [k] of FASES) if(t >= f[k][0] && t < f[k][1]) return k; return t < f.envio[0] ? 'antes' : 'cerrado'; }
 const diasHasta = fin => Math.max(0, Math.ceil((fin - hoy()) / 864e5)); // días que quedan, contando hoy
 const fCorta = d => `${d.getDate()}/${d.getMonth() + 1}`;
-const tarde = p => { if(p.tipo === 'Apertura') return false; const d = new Date(p.ts).getDate(); return d > 20; };
+const tarde = p => { if(p.tipo === 'Apertura') return false; return new Date(p.ts) >= fases(cicloDe(p.ts)).envio[1]; };
 const delCiclo = (c, filtro = () => true) => pedidos.filter(p => cicloDe(p.ts) === c && p.tipo !== 'Apertura' && filtro(p));
 const cicloMas = c => { let y = Math.floor(c / 100), m = c % 100 + 1; if(m > 12){ m = 1; y++; } return y * 100 + m; };
 // primer ciclo en que la sala debía pedir: el de su apertura si abrió antes del cierre del envío (día 20), si no el siguiente
@@ -1322,7 +1324,7 @@ const salaEquipo = () => { if(salaUsuario()) return salaUsuario(); if(rol.admin 
 function vSolicitar(){
   const eq = salaEquipo(); if(eq) unidadSel = eq;
   const u = unidadSel && U[unidadSel];
-  let h = `<section class="panel"><div class="panel-head"><div><h2>${editandoId ? 'Editar solicitud' : 'Nueva solicitud de insumos'}</h2><p class="sub">${eq ? 'Revise las cantidades y envíe.' : 'Elija su sucursal o área, revise las cantidades y envíe.'} Quien aprueba su grupo la confirmará.</p></div></div>
+  let h = `<section class="panel"><div class="panel-head"><div><h2>${editandoId ? 'Editar solicitud' : `Solicitud de insumos para ${esc(nombreCiclo(cicloActivo()))}`}</h2><p class="sub">${eq ? 'Revise las cantidades y envíe.' : 'Elija su sucursal o área, revise las cantidades y envíe.'} Quien aprueba su grupo la confirmará.</p></div></div>
     ${eq && salaUsuario() ? `<div class="equipo-box"><span>👤 Solicita como ${selMisSalas('selMiSala')}</span></div>` : eq ? `<div class="equipo-box"><span>🔒 Este equipo está vinculado a su sala</span><button class="btn btn-sm" id="btnCambiarSala">Cambiar sala</button></div>` : `<label class="f">Sucursal o área${selectorUnidad('selUnidad', unidadSel)}</label>`}`;
   if(u && !rol.admin && !rol.grupos.length) h = bloqueAvisos() + h;
   if(!u){ return lineaCicloMini() + h + `<div class="notice info">Elija su sucursal o área para empezar. Luego agregue los insumos que necesita o cargue su pedido anterior.</div></section>`; }
@@ -1501,7 +1503,7 @@ function tabla(lista, cols, vacio, conSel){
     unidad: ['Sucursal / área', p => `<td><strong>${esc(U[p.unidad_id]?.nombre || p.unidad_id)}</strong><div class="sub" style="margin:0">${esc(titulo(p.solicitante))}</div></td>`],
     aprob: ['Aprueba', p => `<td><span class="gtag" data-g="${esc(grupoDe(p))}">${esc(G[grupoDe(p)]?.aprobador || '')}</span></td>`],
     muelle: ['Muelle', p => `<td class="num">${esc(U[p.unidad_id]?.muelle || '–')}</td>`],
-    enviada: ['Enviada', p => `<td>${fFH(p.ts)}<div class="sub" style="margin:0">${hace(p.ts)}</div></td>`],
+    enviada: ['Enviada', p => `<td>${fFH(p.ts)}<div class="sub" style="margin:0">${hace(p.ts)}${p.tipo === 'Apertura' ? '' : ` · <span title="Mes en que se usan los insumos">ciclo ${esc(nombreCiclo(cicloDe(p.ts)).split(' ')[0].toLowerCase())}</span>`}</div></td>`],
     items: ['Ítems', p => `<td class="num">${p.items.length}</td>`],
     valor: ['Valor', p => { const v = valorPedido(p, p.estado === 'Entregada'); return `<td class="num" style="white-space:nowrap">${v.total ? fBs(v.total) : '–'}${v.sin ? `<div class="sub" style="margin:0" title="Insumos sin precio cargado">${v.sin} sin precio</div>` : ''}</td>`; }],
     estado: ['Estado', p => `<td>${chip(p.estado)}${p.origen === 'historico' ? ' <span class="chip" title="Cargado desde el reporte de traspasos">histórico</span>' : ''}${p.items_original ? ' <span class="chip ajuste">ajustada</span>' : ''}${p.items_entregados ? ' <span class="chip alerta">entrega parcial</span>' : ''}${p.tipo === 'Apertura' ? ` <span class="chip apertura">Apertura${p.fecha_apertura && p.estado !== 'Entregada' ? ' · ' + esc(txtAbre(p.fecha_apertura)) : ''}</span>` : ''}${tarde(p) ? ' <span class="chip">fuera de plazo</span>' : ''}${p.estado === 'Enviada' && horas(Date.now() - p.ts) > 48 ? ' <span class="chip alerta">+2 días</span>' : ''}</td>`],
@@ -1634,10 +1636,10 @@ let fPrep = 'TODOS', fPrepCiclo = null, fPrepAlc = 'todo';
 // Reporte y preparación: solicitudes Confirmadas (no entregadas) cuya confirmación cae en el mes elegido
 const mesHoy = () => { const d = hoy(); return d.getFullYear() * 100 + d.getMonth() + 1; };
 const mesConf = p => { if(!p.confirmado_ts) return 0; const d = new Date(p.confirmado_ts); return d.getFullYear() * 100 + d.getMonth() + 1; };
-const enMesPrep = p => p.estado === 'Aprobada' && mesConf(p) === (fPrepCiclo || mesHoy());
+const enMesPrep = p => p.estado === 'Aprobada' && cicloDe(p.ts) === (fPrepCiclo || cicloActivo());
 const MUELLES_ALL = ['DESP-01','DESP-02','DESP-03','DESP-04','DESP-05','SIN'];
 function datosPrep(){
-  fPrepCiclo ||= mesHoy();
+  fPrepCiclo ||= cicloActivo();
   const l = pedidos.filter(p => enMesPrep(p) && (fPrep === 'TODOS' || grupoDe(p) === fPrep));
   const m = {}; l.forEach(p => { const mu = U[p.unidad_id]?.muelle || 'SIN'; p.items.forEach(i => { const x = m[i.codigo] ||= {codigo:i.codigo, descripcion:i.descripcion, unidad:i.unidad, por:{}, total:0, unidades:new Set()}; const c = +i.cantidad || 0; x.por[mu] = (x.por[mu]||0) + c; x.total += c; x.unidades.add(p.unidad_id); }); });
   return {l, filas:Object.values(m).sort((a,b) => a.descripcion.localeCompare(b.descripcion,'es'))};
@@ -1649,11 +1651,11 @@ function vPreparacion(){
   const aprob = pedidos.filter(p => enMesPrep(p) && enAlc(p)), pend = pedidos.filter(p => p.estado === 'Enviada' && enAlc(p));
   const salas = new Set(aprob.map(p => p.unidad_id)).size, falt = 0;
   return `<section class="panel reporte"><div class="panel-head"><div><h2>Reporte de dotación</h2><p class="sub">Todas las solicitudes <strong>confirmadas en el mes</strong> que todavía no se entregaron. Excel con el formato de "Dotación Sucursales", listo para imprimir en carta.</p></div></div>
-    <div class="row"><label class="f">Mes de confirmación<select id="fPrepCiclo">${[0,1,2,3,4,5].map(k => cicloMenos(mesHoy(), k)).map(cc => `<option value="${cc}" ${cc === c ? 'selected' : ''}>${esc(nombreCiclo(cc))}</option>`).join('')}</select></label>
+    <div class="row"><label class="f">Ciclo<select id="fPrepCiclo">${[0,1,2,3,4,5].map(k => cicloMenos(cicloActivo(), k)).map(cc => `<option value="${cc}" ${cc === c ? 'selected' : ''}>${esc(nombreCiclo(cc))}</option>`).join('')}</select></label>
       <label class="f">Incluir<select id="fPrepAlc"><option value="sucursales" ${fPrepAlc === 'sucursales' ? 'selected' : ''}>Solo sucursales</option><option value="todo" ${fPrepAlc === 'todo' ? 'selected' : ''}>Sucursales, oficina central y CEDIS</option></select></label></div>
     <div class="resumen-rep"><span class="chip Aprobada">${plural(aprob.length, 'aprobada por entregar', 'aprobadas por entregar')} · ${plural(salas, 'sala o área', 'salas y áreas')}</span>${pend.length ? `<span class="chip Enviada">${plural(pend.length, 'por confirmar', 'por confirmar')}</span>` : '<span class="chip Entregada">todo confirmado</span>'}${falt ? `<span class="chip alerta">${plural(falt, 'sin solicitud', 'sin solicitud')}</span>` : ''}</div>
     <div class="row right"><button class="btn btn-primary btn-lg" id="btnReporte" ${aprob.length ? '' : 'disabled'}>Generar reporte de dotación (Excel)</button></div></section>
-  <section class="panel"><div class="panel-head"><div><h2>Preparación${MUELLES.length ? ' por muelle' : ''}</h2><p class="sub">Confirmado en ${esc(nombreCiclo(c).toLowerCase())} y aún no entregado: ${plural(l.length, 'solicitud', 'solicitudes')}.</p></div>
+  <section class="panel"><div class="panel-head"><div><h2>Preparación${MUELLES.length ? ' por muelle' : ''}</h2><p class="sub">Ciclo ${esc(nombreCiclo(c))} (insumos para usar en ${esc(nombreCiclo(c).split(' ')[0].toLowerCase())}), aprobado y aún no entregado: ${plural(l.length, 'solicitud', 'solicitudes')}.</p></div>
     <div class="row">${selGrupo('fPrep', fPrep)}</div></div>
     <div class="tbl-wrap"><table><thead><tr><th>Código</th><th>Insumo</th><th class="num">U.M.</th><th class="num col-total">Total</th>${MUELLES.map(m => `<th class="num">${m === 'SIN' ? 'Sin muelle' : m}</th>`).join('')}<th class="num" title="Cuántas salas o áreas pidieron este insumo">N° salas</th>${verPrecios() ? '<th class="num">Valor</th>' : ''}</tr></thead><tbody>` +
     (filas.length ? filas.map(f => `<tr><td class="code">${esc(f.codigo)}</td><td>${esc(f.descripcion)}</td><td class="num">${esc(f.unidad)}</td><td class="num col-total"><strong>${f.total}</strong></td>${MUELLES.map(m => f.por[m] ? `<td class="num">${f.por[m]}</td>` : '<td class="num zero">–</td>').join('')}<td class="num">${f.unidades.size}</td>${verPrecios() ? `<td class="num" style="white-space:nowrap">${P[f.codigo] != null ? fBs(P[f.codigo] * f.total) : '<span class="sub">sin precio</span>'}</td>` : ''}</tr>`).join('') +
@@ -1661,7 +1663,7 @@ function vPreparacion(){
       : '<tr><td colspan="11" class="empty">Nada pendiente de preparar.</td></tr>') + '</tbody></table></div></section>';
 }
 let fTodEst = 'TODOS', fTodGr = 'TODOS', fTodQ = '', fTodMes = 'TODOS';
-const selMes = (id, val) => { const ms = [...new Set(pedidos.map(p => cicloDe(p.ts)))].sort((a, b) => b - a); return `<select id="${id}" style="width:auto" title="Mes de envío de la solicitud"><option value="TODOS">Todos los meses</option>${ms.map(m => `<option value="${m}" ${String(val) === String(m) ? 'selected' : ''}>${esc(nombreCiclo(m))}</option>`).join('')}</select>`; };
+const selMes = (id, val) => { const ms = [...new Set(pedidos.map(p => cicloDe(p.ts)))].sort((a, b) => b - a); return `<select id="${id}" style="width:auto" title="Ciclo: mes en que se usan los insumos (se pide el mes anterior)"><option value="TODOS">Todos los ciclos</option>${ms.map(m => `<option value="${m}" ${String(val) === String(m) ? 'selected' : ''}>${esc(nombreCiclo(m))}</option>`).join('')}</select>`; };
 function vTodos(){
   const q = fTodQ.toLowerCase();
   const l = pedidos.filter(p => (fTodMes === 'TODOS' || cicloDe(p.ts) === +fTodMes) && (fTodEst === 'TODOS' || p.estado === fTodEst) && (fTodGr === 'TODOS' || grupoDe(p) === fTodGr) && (!q || p.codigo.toLowerCase().includes(q) || (U[p.unidad_id]?.nombre || '').toLowerCase().includes(q) || (p.nro_traspaso || '').toLowerCase().includes(q)));
@@ -2311,7 +2313,7 @@ async function entregarVarios(btn){
   sel.clear(); toast(`${plural(data ?? ids.length, 'solicitud entregada', 'solicitudes entregadas')}.`); cargarPedidos();
 }
 async function generarReporte(btn){
-  const c = fPrepCiclo || mesHoy(), enAlc = p => fPrepAlc === 'todo' || U[p.unidad_id]?.tipo === 'Sucursal';
+  const c = fPrepCiclo || cicloActivo(), enAlc = p => fPrepAlc === 'todo' || U[p.unidad_id]?.tipo === 'Sucursal';
   const pend = pedidos.filter(p => p.estado === 'Enviada' && enAlc(p)).length;
   if(pend && !await confirmar(`Todavía hay ${plural(pend, 'solicitud', 'solicitudes')} sin confirmar. El reporte solo incluye las confirmadas. ¿Generarlo igual?`)) return;
   btn.disabled = true;
@@ -2325,7 +2327,7 @@ async function generarReporte(btn){
   finally{ btn.disabled = false; }
 }
 function lineaCicloMini(){ const c = cicloActivo(), f = fases(c), fa = faseActual(c);
-  return `<div class="notice info">Plazo para enviar solicitudes: del <strong>10 al 20</strong> de cada mes. ${fa === 'envio' ? `Ciclo ${esc(nombreCiclo(c))}: quedan ${plural(diasHasta(f.envio[1]), 'día', 'días')}.` : ''}</div>`; }
+  return `<div class="notice info">Se pide con un mes de anticipación: del <strong>10 al 20</strong> se envía la solicitud para el mes siguiente. ${fa === 'envio' ? `Ahora: <strong>pedido para ${esc(nombreCiclo(c))}</strong> (se entrega del 1 al 10 de ${esc(nombreCiclo(c).split(' ')[0].toLowerCase())}) · quedan ${plural(diasHasta(f.envio[1]), 'día', 'días')}.` : `Su solicitud ahora cuenta para el ciclo <strong>${esc(nombreCiclo(c))}</strong>.`}</div>`; }
 
 // ---------- nueva sala o área ----------
 function gruposCreables(){ return rol.admin ? GL.filter(g => esNac() || g.almacen === rol.almacen || !g.almacen) : GL.filter(g => rol.grupos.includes(g.id) && g.tipo !== 'Sin asignar'); }
