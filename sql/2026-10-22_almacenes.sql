@@ -284,3 +284,6 @@ alter policy "admin edita grupos" on public.grupos using (public.is_admin() or (
 alter policy "admin edita unidades" on public.unidades using (public.es_logistica(almacen)) with check (public.es_logistica(almacen) and exists (select 1 from public.grupos g where g.id = grupo_id and (g.almacen is null or g.almacen = unidades.almacen)));
 -- 2026-10-22: salas ven costos
 create policy "salas ven precios alm" on public.precios_alm for select to anon, authenticated using ((auth.uid() is not null) or (not public.exige_ingreso()));
+-- 2026-10-22: material de reemplazo para compras
+alter table public.maestro add column if not exists reemplazo text;
+update public.maestro set reemplazo = '27233' where codigo = '25645';

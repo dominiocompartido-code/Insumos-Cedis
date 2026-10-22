@@ -2563,9 +2563,15 @@ function datosInventario(){
     const tipo = U[p.unidad_id]?.tipo || 'Sucursal', k = TIPOS_INV.some(t => t[0] === tipo) ? tipo : 'Sucursal';
     p.items.forEach(i => { const c = +i.cantidad || 0; if(!c) return; const x = por[i.codigo] ||= {conf:0, pend:0, tipos:{}}; if(pend) x.pend += c; else x.conf += c; x.tipos[k] = (x.tipos[k] || 0) + c; info[i.codigo] ||= i; (salasC[i.codigo] ||= new Set()).add(p.unidad_id); }); });
   const cods = new Set([...Object.keys(por), ...ML.filter(m => matActivo(m) && matEnAlm(m, al)).map(m => m.codigo)]);
-  return [...cods].map(c => { const m = M[c] || info[c] || {}, d = por[c] || {conf:0, pend:0, tipos:{}}, st = INV[c] || 0, nec = d.conf + d.pend, saldo = st - nec;
-    return {codigo:c, descripcion:m.descripcion || c, unidad:m.unidad || '', proveedor:provDe(c), tipos:d.tipos, stock:st, conf:d.conf, pend:d.pend, nec, saldo, falta:Math.max(0, -saldo), salas:salasC[c]?.size || 0, precio:PA[c], fuera:!M[c] || !matActivo(M[c])}; })
-    .filter(r => !r.fuera && (r.nec > 0 || r.stock > 0));
+  const filas = [...cods].map(c => { const m = M[c] || info[c] || {}, d = por[c] || {conf:0, pend:0, tipos:{}}, st = INV[c] || 0, nec = d.conf + d.pend, saldo = st - nec;
+    return {codigo:c, descripcion:m.descripcion || c, unidad:m.unidad || '', proveedor:provDe(c), tipos:d.tipos, stock:st, conf:d.conf, pend:d.pend, nec, saldo, falta:Math.max(0, -saldo), salas:salasC[c]?.size || 0, precio:PA[c], fuera:!M[c] || !matActivo(M[c])}; });
+  // material reemplazado: su stock cubre lo que se pueda y lo que falte se compra con el código de reemplazo
+  const porC = Object.fromEntries(filas.map(r => [r.codigo, r]));
+  filas.forEach(r => { const rc = M[r.codigo]?.reemplazo; if(!rc || rc === r.codigo || !r.falta) return;
+    let d = porC[rc]; if(!d){ const m = M[rc] || {}; d = porC[rc] = {codigo:rc, descripcion:m.descripcion || rc, unidad:m.unidad || '', proveedor:provDe(rc), tipos:{}, stock:INV[rc] || 0, conf:0, pend:0, nec:0, saldo:INV[rc] || 0, falta:0, salas:0, precio:PA[rc], fuera:!M[rc] || !matActivo(M[rc])}; filas.push(d); }
+    d.recibe = (d.recibe || 0) + r.falta; d.falta = Math.max(0, d.nec + d.recibe - d.stock); (d.de ||= []).push(r.codigo + ':' + r.falta);
+    r.falta = 0; r.va = rc; r.fuera = false; });
+  return filas.filter(r => !r.fuera && (r.nec > 0 || r.stock > 0 || r.falta > 0));
 }
 // orden del formato de compra: por proveedor (sin proveedor al final) y luego por insumo
 const ordenCompra = (a, b) => (a.proveedor === 'SIN PROVEEDOR') - (b.proveedor === 'SIN PROVEEDOR') || a.proveedor.localeCompare(b.proveedor, 'es') || a.descripcion.localeCompare(b.descripcion, 'es');
@@ -2574,7 +2580,7 @@ function vInventario(){
   const todos = datosInventario(), q = normTxt(fInvQ).trim().split(/\s+/).filter(Boolean);
   const provs = [...new Set(todos.map(r => r.proveedor))].sort((a, b) => (a === 'SIN PROVEEDOR') - (b === 'SIN PROVEEDOR') || a.localeCompare(b, 'es'));
   const l = todos.filter(r => (fInvVer === 'todos' || (fInvVer === 'falta' ? r.falta > 0 : r.nec > 0)) && (fInvProv === 'TODOS' || r.proveedor === fInvProv) && (!q.length || q.every(w => normTxt(r.descripcion + ' ' + r.codigo + ' ' + r.proveedor).includes(w)))).sort(ordenCompra);
-  const conNec = todos.filter(r => r.nec > 0), faltan = conNec.filter(r => r.falta > 0), valor = faltan.reduce((a, r) => a + r.falta * (r.precio || 0), 0), sinP = faltan.filter(r => r.precio == null).length;
+  const conNec = todos.filter(r => r.nec > 0), faltan = todos.filter(r => r.falta > 0), valor = faltan.reduce((a, r) => a + r.falta * (r.precio || 0), 0), sinP = faltan.filter(r => r.precio == null).length;
   const fq = n => (+n).toLocaleString('es-BO', {maximumFractionDigits:2}), band = bandasProv(l); let prev = null, alt = 0;
   const cuando = INV_INFO ? `Inventario cargado el ${fFH(new Date(INV_INFO.ts).getTime())}${INV_INFO.archivo ? ' · ' + esc(INV_INFO.archivo) : ''}` : 'Todavía no se cargó el inventario';
   const sinProv = conNec.filter(r => r.proveedor === 'SIN PROVEEDOR').length;
@@ -2591,7 +2597,7 @@ function vInventario(){
     <div class="tbl-wrap"><table class="inv compra"><thead><tr><th>Insumo</th><th>Proveedor</th><th>Cod. int.</th><th class="num">U.M.</th>${TIPOS_INV.map(t => `<th class="num">${t[1]}</th>`).join('')}<th class="num th-periodo">Total período</th><th class="num">Stock</th><th class="num">A comprar</th></tr></thead><tbody>` +
     (l.length ? l.map(r => { if(r.proveedor !== prev){ alt = 0; prev = r.proveedor; } else alt = 1 - alt; const bg = BANDAS[band[r.proveedor]][alt];
       return `<tr style="--banda:${bg}"><td>${esc(r.descripcion)}</td><td class="prov">${esc(r.proveedor === 'SIN PROVEEDOR' ? '—' : r.proveedor)}</td><td class="code">${esc(r.codigo)}</td><td class="num">${esc(r.unidad)}</td>
-      ${TIPOS_INV.map(t => `<td class="num">${fq(r.tipos[t[0]] || 0)}</td>`).join('')}<td class="num"><strong>${fq(r.nec)}</strong></td><td class="num">${fq(r.stock)}</td><td class="num">${r.falta ? `<strong class="neg">${fq(r.falta)}</strong>` : '0'}</td></tr>`; }).join('')
+      ${TIPOS_INV.map(t => `<td class="num">${fq(r.tipos[t[0]] || 0)}</td>`).join('')}<td class="num"><strong>${fq(r.nec)}</strong></td><td class="num">${fq(r.stock)}</td><td class="num">${r.falta ? `<strong class="neg">${fq(r.falta)}</strong>` : '0'}${r.de ? `<div class="sub" style="margin:0">incluye ${r.de.map(x => { const [c, n] = x.split(':'); return `${fq(n)} del ${esc(c)}`; }).join(', ')}</div>` : ''}${r.va ? `<div class="sub" style="margin:0">lo que falta se compra como ${esc(r.va)}</div>` : ''}</td></tr>`; }).join('')
       : `<tr><td colspan="10" class="empty">${fInvVer === 'falta' ? 'Con el stock actual alcanza para todo lo solicitado. 🎉' : 'No hay insumos para mostrar.'}</td></tr>`) + '</tbody></table></div></section>';
 }
 function excelCompra(){
