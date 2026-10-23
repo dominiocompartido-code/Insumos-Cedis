@@ -145,7 +145,7 @@ const esJefatura = () => !rol.admin && !esConsulta() && verTablero();
 const SUB_TABLERO = [['tablero','Resumen'],['bandeja','Por confirmar'],['final','Aprobación final'],['preparacion','Preparación'],['entregar','Por entregar']];
 const subTab = () => SUB_TABLERO.filter(x => (x[0] !== 'final' || esFinal()) && (x[0] !== 'bandeja' || !esConsulta()));
 function tabsDisponibles(){
-  if(esConsulta()) return [...(salaUsuario() ? [['solicitar','Solicitar'], ['seguimiento','Seguimiento']] : []), ['tablero','Tablero', subTab()], ['inventario','Inventario'], ['cobertura','Cobertura'], ['todos','Todos'], ['materiales','Materiales']];
+  if(esConsulta()) return [['solicitar','Solicitar'], ['seguimiento','Seguimiento'], ['tablero','Tablero', subTab()], ['inventario','Inventario'], ['cobertura','Cobertura'], ['todos','Todos'], ['materiales','Materiales']];
   const t = [['solicitar','Solicitar']]; if(rol.admin || !rol.grupos.length) t.push(['seguimiento','Seguimiento']);
   if(rol.admin) t.push(['tablero','Tablero', subTab()], ['inventario','Inventario'], ['cobertura','Cobertura'], ['todos','Todos']);
   else if(verTablero()) t.push(['tablero','Tablero', subTab()], ['inventario','Inventario'], ['grupo','Mi grupo'], ['cobertura','Cobertura'], ['todos','Todos']);
@@ -333,7 +333,8 @@ document.addEventListener('input', e => {
 const misSalas = () => rol.admin || rol.grupos.length ? [] : (rol.unidades || (rol.unidad ? [rol.unidad] : [])).filter(id => U[id]?.activa);
 const salaUsuario = () => { const l = misSalas(); if(!l.length) return null; return l.includes(unidadSel) ? unidadSel : l[0]; };
 const selMisSalas = id => misSalas().length > 1 ? `<select id="${id}" style="width:auto;margin-left:6px">${misSalas().map(x => `<option value="${esc(x)}" ${x === salaUsuario() ? 'selected' : ''}>${esc(U[x].nombre)}</option>`).join('')}</select>` : `<strong>${esc(U[salaUsuario()].nombre)}</strong>`;
-const salaEquipo = () => { if(salaUsuario()) return salaUsuario(); if(rol.admin || rol.grupos.length) return null; const id = store.get('fch_sala_equipo'); return id && U[id] && U[id].activa ? id : null; };
+// consulta puede solicitar para cualquier sala o área: siempre elige en el buscador
+const salaEquipo = () => { if(esConsulta()) return null; if(salaUsuario()) return salaUsuario(); if(rol.admin || rol.grupos.length) return null; const id = store.get('fch_sala_equipo'); return id && U[id] && U[id].activa ? id : null; };
 function vSolicitar(){
   const eq = salaEquipo(); if(eq) unidadSel = eq;
   const u = unidadSel && U[unidadSel];

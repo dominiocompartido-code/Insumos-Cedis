@@ -287,3 +287,5 @@ create policy "salas ven precios alm" on public.precios_alm for select to anon, 
 -- 2026-10-22: material de reemplazo para compras
 alter table public.maestro add column if not exists reemplazo text;
 update public.maestro set reemplazo = '27233' where codigo = '25645';
+-- 2026-10-23: consulta puede pedir para cualquier sala o área
+-- puede_pedir(): se agregó public.es_consulta()
