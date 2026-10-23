@@ -151,7 +151,7 @@ function tabsDisponibles(){
   else if(verTablero()) t.push(['tablero','Tablero', subTab()], ['inventario','Inventario'], ['grupo','Mi grupo'], ['cobertura','Cobertura'], ['todos','Todos']);
   else if(rol.grupos.length) t.push(['bandeja','Por confirmar'], ['grupo','Mi grupo'], ['cobertura','Cobertura']);
   t.push(['materiales','Materiales']);
-  if(rol.admin) t.push(['config','Configuración']);
+  if(rol.admin || esJefatura()) t.push(['config','Configuración']); // Helen y Hubert: solo lectura
   return t;
 }
 const planoTabs = ts => ts.flatMap(([id,l,sub]) => sub ? sub : [[id,l]]);
@@ -213,6 +213,7 @@ function render(){
   if(foco && $(foco) && $(foco).tagName === 'INPUT'){ $(foco).focus(); try{ $(foco).setSelectionRange(pos,pos); }catch(e){} }
   if(tab === 'solicitar') pintaBorrador();
   if(tab === 'materiales') pintaMateriales();
+  if(tab === 'config' && !rol.admin) $('main').querySelectorAll('input, select, textarea, button').forEach(el => { if(['fCfgQ','fCfgGr','btnCopiarLink'].includes(el.id) || el.classList.contains('pleg')) return; if(el.matches('[data-nueva-unidad], [data-kx], #btnKitGuardar, #btnKitDescartar, #kitBuscar') || /^(Editar|Eliminar|Reactivar|Guardar)/.test(el.textContent.trim())) el.hidden = true; el.disabled = true; });
   actualizarCampana();
 }
 
@@ -927,9 +928,10 @@ function vConfig(){
   const us = UL.filter(u => (fCfgGr === 'TODOS' || u.grupo_id === fCfgGr) && (!q || u.nombre.toLowerCase().includes(q) || (u.codigo_sala || '').includes(q))).sort((a,b) => (b.activa - a.activa));
   const sin = UL.filter(u => u.activa && tipoG(u.grupo_id) === 'Sin asignar' && u.tipo === 'Sucursal').length, conMue = muellesAlm(almVista()), conAlm = multiAlm() && almVista() === 'TODOS';
   const gsU = u => GLall.filter(g => (g.activo !== false || g.id === u.grupo_id) && (!g.almacen || g.almacen === (u.almacen || 'SCZ')));
-  return (esNac() ? vRoles() + vIngreso() : '') + `<section class="panel${plegCls('aprob')}"><div class="panel-head"><div><h2>Aprobadores ${plegBtn('aprob')}</h2><p class="sub">Cada aprobador ingresa con el correo que figure aquí. Mientras no tenga correo, sus solicitudes las puede confirmar logística.</p></div></div>
+  const ro = !rol.admin;
+  return (ro ? '<div class="notice info">Configuración en <strong>solo lectura</strong>: puede revisar aprobadores, salas y áreas, y el kit de apertura. Los cambios los hace Logística.</div>' : '') + (esNac() ? vRoles() + vIngreso() : '') + `<section class="panel${plegCls('aprob')}"><div class="panel-head"><div><h2>Aprobadores ${plegBtn('aprob')}</h2><p class="sub">Cada aprobador ingresa con el correo que figure aquí. Mientras no tenga correo, sus solicitudes las puede confirmar logística.</p></div></div>
     <div class="tbl-wrap"><table><thead><tr><th>Grupo</th><th>Nombre del aprobador</th><th>Correo para ingresar</th><th class="num">Unidades</th><th></th></tr></thead><tbody>` +
-    GL.filter(g => esNac() || g.almacen === rol.almacen).map(g => `<tr><td><strong class="gtag" data-g="${esc(g.id)}">${esc(g.nombre)}</strong><div class="sub" style="margin:0">${esc(g.tipo)}${conAlm ? ' · ' + (g.almacen ? esc(almNom(g.almacen)) : 'Nacional') : ''}</div></td>
+    GL.filter(g => ro || esNac() || g.almacen === rol.almacen).map(g => `<tr><td><strong class="gtag" data-g="${esc(g.id)}">${esc(g.nombre)}</strong><div class="sub" style="margin:0">${esc(g.tipo)}${conAlm ? ' · ' + (g.almacen ? esc(almNom(g.almacen)) : 'Nacional') : ''}</div></td>
       <td><input id="cfgN-${g.id}" value="${esc(g.aprobador)}" maxlength="80"></td><td><input type="email" id="cfgE-${g.id}" value="${esc(g.aprobador_email || '')}" placeholder="correo@farmaciachavez.com.bo"></td>
       <td class="num">${UL.filter(u => u.grupo_id === g.id).length}</td><td><button class="btn btn-sm btn-primary" data-cfg-save="${g.id}">Guardar</button></td></tr>`).join('') +
     `</tbody></table></div></section>
@@ -939,7 +941,7 @@ function vConfig(){
     (us.length ? us.map(u => `<tr class="${u.activa ? '' : 'cerrada'}"><td><strong>${esc(u.nombre)}</strong><div class="sub" style="margin:0">${esc(u.tipo)}${conAlm ? ' · <span class="chip alm">' + esc(almNom(u.almacen || 'SCZ')) + '</span>' : ''}${u.creada_ts ? ' · abrió ' + fCorta(new Date(u.creada_ts)) + '/' + new Date(u.creada_ts).getFullYear() : ''}${u.activa ? '' : ' · <span class="chip alerta">eliminada</span>'}${u.correo ? `<br><span title="Usuario que ingresa como esta sala">👤 ${esc(u.correo)}</span>` : ''}${(u.correos_extra || []).length ? `<br><span title="Usuarios adicionales que también pueden pedir por esta sala">➕ ${esc(u.correos_extra.join(', '))}</span>` : ''}</div></td><td class="num mono">${esc(u.codigo_sala || '–')}</td>${conMue ? `<td class="num">${esc(u.muelle || '–')}</td>` : ''}<td>${esc(u.regional || '–')}</td>
       <td><select data-ug="${esc(u.id)}" id="ug-${esc(u.id)}" aria-label="Grupo de ${esc(u.nombre)}">${gsU(u).map(g => `<option value="${g.id}" ${u.grupo_id === g.id ? 'selected' : ''}>${esc(g.nombre)}</option>`).join('')}</select></td>
       <td class="mono sub" style="font-size:11px;word-break:break-all">?u=${esc(u.id)}</td><td class="num" style="white-space:nowrap">${botonEditar(u)}${botonCerrar(u)}</td></tr>`).join('') : '<tr><td colspan="7" class="empty">Ninguna coincide.</td></tr>') +
-    `</tbody></table></div><p class="sub" style="margin:0">El enlace directo abre la página con esa sucursal ya elegida: agregue <span class="mono">?u=CÓDIGO</span> al final de la dirección de la página. <button class="btn btn-sm" id="btnCopiarLink">Copiar lista de enlaces</button></p></section>` + (esNac() ? vKit() : '');
+    `</tbody></table></div><p class="sub" style="margin:0">El enlace directo abre la página con esa sucursal ya elegida: agregue <span class="mono">?u=CÓDIGO</span> al final de la dirección de la página. <button class="btn btn-sm" id="btnCopiarLink">Copiar lista de enlaces</button></p></section>` + (esNac() || ro ? vKit() : '');
 }
 // ---------- kit de apertura (editable por logística) ----------
 let kitEd = null;
