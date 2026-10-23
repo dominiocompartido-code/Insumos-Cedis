@@ -1067,7 +1067,7 @@ function aplicarAlm(){ const a = almVista();
   UL = ULall.filter(u => enAlm(u, a)); GL = GLall.filter(g => g.activo !== false && (a === 'TODOS' || !g.almacen || g.almacen === a));
   pedidos = pedAll.filter(p => enAlm(U[p.unidad_id], a)); anuladas = anuAll.filter(p => enAlm(U[p.unidad_id], a)); P = P_ALM[almCosto()] || {}; }
 const matActivo = m => m && m.activo !== false;
-const puedeCatalogo = () => rol.admin || !!rol.gerencia || rol.grupos.some(g => ['Oficina central','CEDIS','Sin asignar'].includes(tipoG(g)));
+const puedeCatalogo = () => rol.admin || !!rol.gerencia || !!rol.jefatura;
 const puedeAprobar = p => rol.admin || rol.grupos.includes(grupoDe(p));
 const corto = u => { const m = /^SUC-(\d+)$/.exec(u.id); return m ? m[1] : u.nombre.replace(/^SUC[\s.\-]*/i,'').split(/\s+/)[0].slice(0,6); };
 // nombre y U.M. siempre según el maestro actual (si se corrige un material, se ve corregido en todas las solicitudes)
@@ -1142,7 +1142,8 @@ let recarga; const programar = fn => { clearTimeout(recarga); recarga = setTimeo
 
 // ---------- roles y pestañas ----------
 const esConsulta = () => !rol.admin && !!rol.consulta && !rol.grupos.length;
-const verTablero = () => rol.admin || !!rol.consulta || !!rol.gerencia || rol.grupos.some(g => g === 'OFC' || g === 'CEDIS');
+// Jefatura (Helen, Hubert) es un rol asignado; ya no se deduce de aprobar Oficina central o CEDIS
+const verTablero = () => rol.admin || !!rol.consulta || !!rol.gerencia || !!rol.jefatura;
 const esJefatura = () => !rol.admin && !esConsulta() && verTablero();
 const SUB_TABLERO = [['tablero','Resumen'],['bandeja','Por confirmar'],['final','Aprobación final'],['preparacion','Preparación'],['entregar','Por entregar']];
 const subTab = () => SUB_TABLERO.filter(x => (x[0] !== 'final' || (esFinal() && pedAll.some(p => p.estado === 'Confirmada'))) && (x[0] !== 'bandeja' || (!esConsulta() && (rol.admin || rol.grupos.length > 0))));
@@ -1741,7 +1742,7 @@ document.addEventListener('click', e => { const b = e.target.closest?.('[data-pl
 let ADMINS = [];
 async function cargarAdmins(){ try{ const {data} = await sb.rpc('listar_roles_alm'); ADMINS = (data || []).map(a => ({...a, rol:a.rol || 'logistica'})); }catch(e){ ADMINS = []; } }
 function vRoles(ro){
-  const jef = GL.filter(g => (g.tipo === 'Oficina central' || g.tipo === 'CEDIS') && !/^logística/i.test(g.aprobador || '')), sup = GL.filter(g => g.tipo === 'Sucursales');
+  const jefA = ADMINS.filter(a => a.activo && (a.rol === 'jefatura' || a.rol === 'gerencia')), jefE = new Set(jefA.map(a => a.email)), sup = GL.filter(g => !/^logística/i.test(g.aprobador || '') && !jefE.has((g.aprobador_email || '').toLowerCase()));
   const persona = (n, e) => `<span class="rol-p"><strong>${esc(n || '—')}</strong>${e ? `<span class="sub">${esc(e)}</span>${sinCuenta(e)}` : '<span class="chip alerta">sin correo</span>'}</span>`;
   const act = UL.filter(u => u.activa), conU = act.filter(u => u.correo).length;
   const fila = (ico, nombre, permisos, quien) => `<tr><td class="rol-n"><span class="rol-ico">${ico}</span><strong>${nombre}</strong></td><td><ul class="rol-perm">${permisos.map(x => `<li>${x}</li>`).join('')}</ul></td><td>${quien}</td></tr>`;
@@ -1753,16 +1754,15 @@ function vRoles(ro){
     <div class="tbl-wrap"><table class="roles"><thead><tr><th>Rol</th><th>Puede</th><th>Quiénes</th></tr></thead><tbody>
     ${fila('🚚', multiAlm() ? 'Logística' : 'Logística CEDIS', [...(multiAlm() ? ['Nacional: todo, en ambos almacenes. De un almacén: solo sus salas, entregas, inventario y costos'] : []), 'Todo lo de Jefatura', 'Marcar entregas, N° de traspaso y entregas parciales', 'Cargar inventario y editar costos y proveedores', 'Configuración: salas, aprobadores, usuarios y kit'],
       adm.map(a => chipP(a, 'logistica')).join('') + (ro ? '' : addP('logistica')))}
-    ${fila('🏛️', 'Gerencia', ['Ver todo a nivel nacional: Tablero, Inventario, Cobertura, Todos y costos', 'Asignar el presupuesto mensual (Bs) de cada sala', 'Crear, editar y eliminar grupos y aprobadores', 'Enviar solicitudes para cualquier sala o área', 'Ver la configuración (salas, roles y kit) en solo lectura'], ger.map(a => chipP(a, 'gerencia')).join('') + (ro ? '' : addP('gerencia')))}
     ${fila('👁️', 'Consulta', ['Ver todo: Tablero, preparación, por entregar, Inventario, Cobertura de todas las salas, Todos y costos', 'Descargar reportes y el Excel de compra', 'No confirma, no entrega y no edita nada', 'Si se le asigna una sala, también puede pedir para esa sala'], cons.map(a => chipP(a, 'consulta')).join('') + (ro ? '' : addP('consulta')))}
-    ${fila('📊', 'Jefatura', ['Confirmar o rechazar las solicitudes de su grupo', 'Ver Tablero completo: preparación y por entregar (solo consulta)', 'Ver Inventario, necesidad de compra, Todos y costos', 'Crear y editar materiales'], jef.map(g => persona(g.aprobador + ' · ' + g.nombre, g.aprobador_email)).join(''))}
-    ${fila('✅', 'Supervisora (aprobadora)', ['Confirmar o rechazar las solicitudes de su grupo', 'Ver Mi grupo y Cobertura de sus salas', 'Ver costos'], sup.map(g => persona(g.aprobador, g.aprobador_email)).join(''))}
+    ${fila('📊', 'Jefatura', ['Ver todo a nivel nacional: Tablero, preparación y por entregar, Inventario, Cobertura, Todos y costos', 'Confirmar o rechazar las solicitudes de su grupo, si tiene uno', 'Crear y editar materiales', 'Ver la configuración en solo lectura', 'Helen (Gerencia) además asigna el presupuesto mensual de cada sala y gestiona los grupos'], jefA.map(a => chipP(a, a.rol) + (a.rol === 'gerencia' ? '<span class="sub"> · Gerencia</span>' : '')).join('') + (ro ? '' : addP('jefatura')))}
+    ${fila('✅', 'Supervisora (aprobadora)', ['Confirmar o rechazar las solicitudes de su grupo', 'Ver Mi grupo y Cobertura de sus salas', 'Ver costos'], sup.map(g => persona(g.aprobador + (g.tipo !== 'Sucursales' ? ' · ' + g.nombre : ''), g.aprobador_email)).join(''))}
     ${fila('🏪', 'Sala o área', ['Enviar solicitudes solo para su sala', 'Ver el seguimiento de sus solicitudes', 'Anular una solicitud mientras no esté confirmada'], `<span class="rol-p"><strong>${conU} de ${act.length}</strong><span class="sub">salas y áreas con usuario</span></span>`)}
     ${EXIGIR ? '' : fila('🔓', 'Sin ingresar', ['Enviar solicitudes eligiendo la sala (cualquiera con el enlace)', 'Se apaga al activar el ingreso obligatorio'], '<span class="sub">Cualquier persona con el enlace</span>')}
     </tbody></table></div>
     <p class="sub" style="margin:0">Con <strong>+ Crear usuario</strong> se crea la cuenta (ya confirmada) y se le asigna el rol en un solo paso. Jefatura y supervisoras también se editan en <strong>Aprobadores</strong>; los usuarios de sala, en <strong>Usuarios de salas y áreas</strong>.</p></section>` + (ro ? '' : vCuentas());
 }
-const NOM_ROL = {logistica:'Logística CEDIS', consulta:'Consulta', gerencia:'Gerencia'};
+const NOM_ROL = {logistica:'Logística CEDIS', consulta:'Consulta', gerencia:'Gerencia', jefatura:'Jefatura'};
 async function cambiarAdmin(email, activo, btn, r = 'logistica', alm){
   if(!activo && !await confirmar(`¿Quitar el rol de ${NOM_ROL[r]} a ${email}?`, {titulo:'Quitar rol', si:'Sí, quitar', tono:'btn-danger'})) return;
   const otro = ADMINS.find(a => a.email === email && a.activo && a.rol !== r);
@@ -2159,11 +2159,11 @@ $('detBody').addEventListener('click', async e => {
 // ---------- sesión ----------
 async function evaluarSesion(s){
   sesion = s; rol = {admin:false, grupos:[]};
-  if(s){ const {data} = await sb.rpc('mi_rol'); if(data) rol = {unidades:data.unidades || null, admin:!!data.admin, almacen:data.admin && data.almacen ? data.almacen : null, final:!!data.final, consulta:!!data.consulta, gerencia:!!data.gerencia, grupos:data.grupos || [], unidad:data.unidad || null}; }
+  if(s){ const {data} = await sb.rpc('mi_rol'); if(data) rol = {unidades:data.unidades || null, admin:!!data.admin, almacen:data.admin && data.almacen ? data.almacen : null, final:!!data.final, consulta:!!data.consulta, gerencia:!!data.gerencia, jefatura:!!data.jefatura || !!data.gerencia, grupos:data.grupos || [], unidad:data.unidad || null}; }
   aplicarAlm();
   $('btnLogin').textContent = s ? 'Salir' : 'Ingresar';
-  $('roleChip').textContent = rol.admin ? (rol.almacen ? 'Logística ' + almNom(rol.almacen) : multiAlm() ? 'Logística nacional' : 'Logística CEDIS') : esConsulta() ? 'Consulta' + (salaUsuario() ? ' · ' + U[salaUsuario()].nombre : '') : rol.gerencia && !rol.admin ? 'Gerencia' : esJefatura() ? 'Jefatura · ' + rol.grupos.map(g => G[g]?.aprobador).join(', ') : rol.unidad && U[rol.unidad] && !rol.grupos.length ? U[rol.unidad].nombre : rol.grupos.length ? 'Aprobador · ' + rol.grupos.map(g => G[g]?.aprobador).join(', ') : s ? 'Sin grupo asignado' : EXIGIR ? 'Sin ingresar' : 'Sucursal';
-  $('roleChip').classList.toggle('role', rol.admin || !!rol.consulta || !!rol.gerencia || rol.grupos.length > 0);
+  $('roleChip').textContent = rol.admin ? (rol.almacen ? 'Logística ' + almNom(rol.almacen) : multiAlm() ? 'Logística nacional' : 'Logística CEDIS') : esConsulta() ? 'Consulta' + (salaUsuario() ? ' · ' + U[salaUsuario()].nombre : '') : esJefatura() ? 'Jefatura' + (sesion?.user?.email ? ' · ' + (ADMINS.find(a => a.email === sesion.user.email.toLowerCase())?.nombre || sesion.user.email.split('@')[0]) : '') : rol.unidad && U[rol.unidad] && !rol.grupos.length ? U[rol.unidad].nombre : rol.grupos.length ? 'Aprobador · ' + rol.grupos.map(g => G[g]?.aprobador).join(', ') : s ? 'Sin grupo asignado' : EXIGIR ? 'Sin ingresar' : 'Sucursal';
+  $('roleChip').classList.toggle('role', rol.admin || !!rol.consulta || !!rol.gerencia || !!rol.jefatura || rol.grupos.length > 0);
   if(rol.admin || rol.gerencia){ try{ await cargarBase(); }catch(e){} }
   if(listo && EXIGIR){ try{ await cargarPedidos(); }catch(e){} }
   await cargarPrecios();
