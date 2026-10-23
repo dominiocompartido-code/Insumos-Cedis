@@ -295,3 +295,4 @@ update public.maestro set reemplazo = '27233' where codigo = '25645';
 -- unidades.presupuesto; ciclo_de(); valor_items(); usado_presupuesto(); trigger trg_controlar_presupuesto (bloquea envío/edición si supera); guardar_presupuestos(jsonb)
 -- 2026-10-23: guardar_presupuestos permite también es_aprobador_final() (Helen)
 -- 2026-10-23: sin aprobación final (requiere_aprobacion_final() devuelve false)
+-- 2026-10-23: rol gerencia (Helen) en admins; es_gerencia(); guardar_grupo(); OFC aprobado por Olvy Tomicha

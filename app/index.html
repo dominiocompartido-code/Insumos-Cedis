@@ -1067,7 +1067,7 @@ function aplicarAlm(){ const a = almVista();
   UL = ULall.filter(u => enAlm(u, a)); GL = GLall.filter(g => g.activo !== false && (a === 'TODOS' || !g.almacen || g.almacen === a));
   pedidos = pedAll.filter(p => enAlm(U[p.unidad_id], a)); anuladas = anuAll.filter(p => enAlm(U[p.unidad_id], a)); P = P_ALM[almCosto()] || {}; }
 const matActivo = m => m && m.activo !== false;
-const puedeCatalogo = () => rol.admin || rol.grupos.some(g => ['Oficina central','CEDIS','Sin asignar'].includes(tipoG(g)));
+const puedeCatalogo = () => rol.admin || !!rol.gerencia || rol.grupos.some(g => ['Oficina central','CEDIS','Sin asignar'].includes(tipoG(g)));
 const puedeAprobar = p => rol.admin || rol.grupos.includes(grupoDe(p));
 const corto = u => { const m = /^SUC-(\d+)$/.exec(u.id); return m ? m[1] : u.nombre.replace(/^SUC[\s.\-]*/i,'').split(/\s+/)[0].slice(0,6); };
 // nombre y U.M. siempre según el maestro actual (si se corrige un material, se ve corregido en todas las solicitudes)
@@ -1104,7 +1104,7 @@ function bannerPush(){
   return `<div class="notice info push-box"><span>🔔 <strong>Active las notificaciones</strong> para enterarse ${aprob ? 'de las solicitudes nuevas' : 'cuando confirmen o entreguen sus solicitudes'} aunque la app esté cerrada.</span><span style="display:flex;gap:6px"><button class="btn btn-sm" id="btnPushNo">Ahora no</button><button class="btn btn-sm btn-primary" id="btnPush">Activar</button></span></div>`;
 }
 let KIT = [], P = {};
-const verPrecios = () => rol.admin || !!rol.consulta || rol.grupos.length > 0;
+const verPrecios = () => rol.admin || !!rol.consulta || !!rol.gerencia || rol.grupos.length > 0;
 // costo de los insumos: lo ven todos, también las salas al armar su solicitud
 const verCosto = () => true;
 let INV = {}, INVD = {}, INV_INFO = null;
@@ -1118,7 +1118,7 @@ function valorPedido(p, entregado){ const its = entregado && p.items_entregados 
 async function cargarBase(){
   const kitP = sb.from('config').select('*').then(r => { const k = (r.data || []).find(x => x.clave === 'kit_apertura'); KIT = k ? k.valor || [] : []; EXIGIR = (r.data || []).some(x => x.clave === 'exigir_ingreso' && x.valor === true); }, () => {});
   const [g, u, m, al] = await Promise.all([
-    sb.from('grupos').select(rol.admin ? '*' : 'id,nombre,tipo,aprobador,orden,activo,almacen').order('orden'),
+    sb.from('grupos').select(rol.admin || rol.gerencia ? '*' : 'id,nombre,tipo,aprobador,orden,activo,almacen').order('orden'),
     sb.from('unidades').select('*'),
     sb.from('maestro').select('*').order('descripcion'),
     sb.from('almacenes').select('*').order('orden').then(r => r, () => ({data:[]})),
@@ -1142,15 +1142,15 @@ let recarga; const programar = fn => { clearTimeout(recarga); recarga = setTimeo
 
 // ---------- roles y pestañas ----------
 const esConsulta = () => !rol.admin && !!rol.consulta && !rol.grupos.length;
-const verTablero = () => rol.admin || !!rol.consulta || rol.grupos.some(g => g === 'OFC' || g === 'CEDIS');
+const verTablero = () => rol.admin || !!rol.consulta || !!rol.gerencia || rol.grupos.some(g => g === 'OFC' || g === 'CEDIS');
 const esJefatura = () => !rol.admin && !esConsulta() && verTablero();
 const SUB_TABLERO = [['tablero','Resumen'],['bandeja','Por confirmar'],['final','Aprobación final'],['preparacion','Preparación'],['entregar','Por entregar']];
-const subTab = () => SUB_TABLERO.filter(x => (x[0] !== 'final' || (esFinal() && pedAll.some(p => p.estado === 'Confirmada'))) && (x[0] !== 'bandeja' || !esConsulta()));
+const subTab = () => SUB_TABLERO.filter(x => (x[0] !== 'final' || (esFinal() && pedAll.some(p => p.estado === 'Confirmada'))) && (x[0] !== 'bandeja' || (!esConsulta() && (rol.admin || rol.grupos.length > 0))));
 function tabsDisponibles(){
   if(esConsulta()) return [['solicitar','Solicitar'], ['seguimiento','Seguimiento'], ['tablero','Tablero', subTab()], ['inventario','Inventario'], ['cobertura','Cobertura'], ['todos','Todos'], ['materiales','Materiales']];
   const t = [['solicitar','Solicitar']]; if(rol.admin || !rol.grupos.length) t.push(['seguimiento','Seguimiento']);
   if(rol.admin) t.push(['tablero','Tablero', subTab()], ['inventario','Inventario'], ['cobertura','Cobertura'], ['todos','Todos']);
-  else if(verTablero()) t.push(['tablero','Tablero', subTab()], ['inventario','Inventario'], ['grupo','Mi grupo'], ['cobertura','Cobertura'], ['todos','Todos']);
+  else if(verTablero()) t.push(['tablero','Tablero', subTab()], ['inventario','Inventario'], ...(rol.grupos.length ? [['grupo','Mi grupo']] : []), ['cobertura','Cobertura'], ['todos','Todos']);
   else if(rol.grupos.length) t.push(['bandeja','Por confirmar'], ['grupo','Mi grupo'], ['cobertura','Cobertura']);
   t.push(['materiales','Materiales']);
   if(rol.admin || esJefatura()) t.push(['config','Configuración']); // Helen y Hubert: solo lectura
@@ -1191,7 +1191,7 @@ addEventListener('resize', ajustarAltoHdr); setTimeout(ajustarAltoHdr, 0); setTi
 function vBloqueo(){
   if(!EXIGIR) return '';
   if(!sesion) return `<section class="panel bloqueo"><div class="bloqueo-in"><div class="bloqueo-ico">🔐</div><h2>Ingrese con su usuario</h2><p class="sub">Para enviar o ver solicitudes de insumos, ingrese con el correo y la contraseña de su sala o área.</p><button class="btn btn-primary" data-ir-login="1">Ingresar</button><p class="sub" style="margin-top:14px">¿No tiene usuario? Pídalo a Logística CEDIS.</p></div></section>`;
-  if(!rol.admin && !rol.consulta && !rol.grupos.length && !salaUsuario()) return `<section class="panel bloqueo"><div class="bloqueo-in"><div class="bloqueo-ico">⏳</div><h2>Su usuario no está vinculado a una sala</h2><p class="sub">Ingresó como <strong>${esc(sesion.user?.email || '')}</strong>, pero todavía no está asignado a ninguna sucursal o área. Comuníquese con Logística CEDIS.</p><button class="btn" data-ir-login="1">Salir</button></div></section>`;
+  if(!rol.admin && !rol.consulta && !rol.gerencia && !rol.grupos.length && !salaUsuario()) return `<section class="panel bloqueo"><div class="bloqueo-in"><div class="bloqueo-ico">⏳</div><h2>Su usuario no está vinculado a una sala</h2><p class="sub">Ingresó como <strong>${esc(sesion.user?.email || '')}</strong>, pero todavía no está asignado a ninguna sucursal o área. Comuníquese con Logística CEDIS.</p><button class="btn" data-ir-login="1">Salir</button></div></section>`;
   return '';
 }
 document.addEventListener('click', e => { if(e.target.closest?.('[data-ir-login]')) $('btnLogin').click(); });
@@ -1215,7 +1215,7 @@ function render(){
   if(foco && $(foco) && $(foco).tagName === 'INPUT'){ $(foco).focus(); try{ $(foco).setSelectionRange(pos,pos); }catch(e){} }
   if(tab === 'solicitar') pintaBorrador();
   if(tab === 'materiales') pintaMateriales();
-  if(tab === 'config' && !rol.admin) $('main').querySelectorAll('input, select, textarea, button').forEach(el => { if(['fCfgQ','fCfgGr','btnCopiarLink','btnPresPlant'].includes(el.id) || el.classList.contains('pleg')) return; if(esFinal() && (el.classList.contains('pres-in') || ['btnPresSubir','filePres'].includes(el.id))) return; if(el.matches('[data-quitar-rol], [data-add-rol], [data-nueva-unidad], [data-kx], #btnKitGuardar, #btnKitDescartar, #kitBuscar') || /^(Editar|Eliminar|Reactivar|Guardar)/.test(el.textContent.trim())) el.hidden = true; el.disabled = true; });
+  if(tab === 'config' && !rol.admin) $('main').querySelectorAll('input, select, textarea, button').forEach(el => { if(['fCfgQ','fCfgGr','btnCopiarLink','btnPresPlant'].includes(el.id) || el.classList.contains('pleg')) return; if(esFinal() && (el.classList.contains('pres-in') || ['btnPresSubir','filePres'].includes(el.id))) return; if(rol.gerencia && (el.closest('.nuevo-grupo') || /^cfg[GTNE]-/.test(el.id) || el.matches('[data-grp-save], [data-grp-del], [data-grp-react], #btnNuevoGrupo'))) return; if(el.matches('[data-quitar-rol], [data-add-rol], [data-nueva-unidad], [data-kx], #btnKitGuardar, #btnKitDescartar, #kitBuscar') || /^(Editar|Eliminar|Reactivar|Guardar)/.test(el.textContent.trim())) el.hidden = true; el.disabled = true; });
   actualizarCampana();
 }
 
@@ -1341,7 +1341,7 @@ const misSalas = () => rol.admin || rol.grupos.length ? [] : (rol.unidades || (r
 const salaUsuario = () => { const l = misSalas(); if(!l.length) return null; return l.includes(unidadSel) ? unidadSel : l[0]; };
 const selMisSalas = id => misSalas().length > 1 ? `<select id="${id}" style="width:auto;margin-left:6px">${misSalas().map(x => `<option value="${esc(x)}" ${x === salaUsuario() ? 'selected' : ''}>${esc(U[x].nombre)}</option>`).join('')}</select>` : `<strong>${esc(U[salaUsuario()].nombre)}</strong>`;
 // consulta puede solicitar para cualquier sala o área: siempre elige en el buscador
-const salaEquipo = () => { if(esConsulta()) return null; if(salaUsuario()) return salaUsuario(); if(rol.admin || rol.grupos.length) return null; const id = store.get('fch_sala_equipo'); return id && U[id] && U[id].activa ? id : null; };
+const salaEquipo = () => { if(esConsulta() || rol.gerencia) return null; if(salaUsuario()) return salaUsuario(); if(rol.admin || rol.grupos.length) return null; const id = store.get('fch_sala_equipo'); return id && U[id] && U[id].activa ? id : null; };
 function vSolicitar(){
   const eq = salaEquipo(); if(eq) unidadSel = eq;
   const u = unidadSel && U[unidadSel];
@@ -1745,7 +1745,7 @@ function vRoles(ro){
   const persona = (n, e) => `<span class="rol-p"><strong>${esc(n || '—')}</strong>${e ? `<span class="sub">${esc(e)}</span>${sinCuenta(e)}` : '<span class="chip alerta">sin correo</span>'}</span>`;
   const act = UL.filter(u => u.activa), conU = act.filter(u => u.correo).length;
   const fila = (ico, nombre, permisos, quien) => `<tr><td class="rol-n"><span class="rol-ico">${ico}</span><strong>${nombre}</strong></td><td><ul class="rol-perm">${permisos.map(x => `<li>${x}</li>`).join('')}</ul></td><td>${quien}</td></tr>`;
-  const adm = ADMINS.filter(a => a.activo && a.rol === 'logistica'), cons = ADMINS.filter(a => a.activo && a.rol === 'consulta');
+  const adm = ADMINS.filter(a => a.activo && a.rol === 'logistica'), cons = ADMINS.filter(a => a.activo && a.rol === 'consulta'), ger = ADMINS.filter(a => a.activo && a.rol === 'gerencia');
   const chipP = (a, r) => `<span class="rol-p"><strong>${esc(a.nombre || a.email.split('@')[0])}</strong><span class="sub">${esc(a.email)}</span>${r === 'logistica' && multiAlm() ? `<span class="chip alm">${a.almacen ? esc(almNom(a.almacen)) : 'Nacional'}</span>` : ''}${r === 'consulta' && UL.some(u => u.correo === a.email) ? `<span class="sub">🏪 pide para ${esc(UL.find(u => u.correo === a.email).nombre)}</span>` : ''}${sinCuenta(a.email)}${a.email !== (sesion?.user?.email || '').toLowerCase() ? `<button class="x-mini" data-quitar-rol="${esc(a.email)}" data-r="${r}" title="Quitar rol">✕</button>` : ''}</span>`;
   const addP = r => `<div class="row" style="margin-top:6px;gap:6px"><input id="nuevo-${r}" type="email" placeholder="correo@farmaciaschavez.com.bo" style="max-width:240px">${r === 'logistica' && multiAlm() ? `<select id="nuevo-alm" style="width:auto"><option value="">Nacional (todo)</option>${ALMS.map(a => `<option value="${esc(a.id)}">Solo ${esc(a.nombre)}</option>`).join('')}</select>` : ''}<button class="btn btn-sm" data-add-rol="${r}">+ Agregar</button></div>`;
   if(!ro && CUENTAS === null && !vRoles._pidiendo){ vRoles._pidiendo = true; cargarCuentas().then(() => { vRoles._pidiendo = false; if(tab === 'config') render(); }); }
@@ -1753,6 +1753,7 @@ function vRoles(ro){
     <div class="tbl-wrap"><table class="roles"><thead><tr><th>Rol</th><th>Puede</th><th>Quiénes</th></tr></thead><tbody>
     ${fila('🚚', multiAlm() ? 'Logística' : 'Logística CEDIS', [...(multiAlm() ? ['Nacional: todo, en ambos almacenes. De un almacén: solo sus salas, entregas, inventario y costos'] : []), 'Todo lo de Jefatura', 'Marcar entregas, N° de traspaso y entregas parciales', 'Cargar inventario y editar costos y proveedores', 'Configuración: salas, aprobadores, usuarios y kit'],
       adm.map(a => chipP(a, 'logistica')).join('') + (ro ? '' : addP('logistica')))}
+    ${fila('🏛️', 'Gerencia', ['Ver todo a nivel nacional: Tablero, Inventario, Cobertura, Todos y costos', 'Asignar el presupuesto mensual (Bs) de cada sala', 'Crear, editar y eliminar grupos y aprobadores', 'Enviar solicitudes para cualquier sala o área', 'Ver la configuración (salas, roles y kit) en solo lectura'], ger.map(a => chipP(a, 'gerencia')).join('') + (ro ? '' : addP('gerencia')))}
     ${fila('👁️', 'Consulta', ['Ver todo: Tablero, preparación, por entregar, Inventario, Cobertura de todas las salas, Todos y costos', 'Descargar reportes y el Excel de compra', 'No confirma, no entrega y no edita nada', 'Si se le asigna una sala, también puede pedir para esa sala'], cons.map(a => chipP(a, 'consulta')).join('') + (ro ? '' : addP('consulta')))}
     ${fila('📊', 'Jefatura', ['Confirmar o rechazar las solicitudes de su grupo', 'Ver Tablero completo: preparación y por entregar (solo consulta)', 'Ver Inventario, necesidad de compra, Todos y costos', 'Crear y editar materiales'], jef.map(g => persona(g.aprobador + ' · ' + g.nombre, g.aprobador_email)).join(''))}
     ${fila('✅', 'Supervisora (aprobadora)', ['Confirmar o rechazar las solicitudes de su grupo', 'Ver Mi grupo y Cobertura de sus salas', 'Ver costos'], sup.map(g => persona(g.aprobador, g.aprobador_email)).join(''))}
@@ -1761,7 +1762,7 @@ function vRoles(ro){
     </tbody></table></div>
     <p class="sub" style="margin:0">Con <strong>+ Crear usuario</strong> se crea la cuenta (ya confirmada) y se le asigna el rol en un solo paso. Jefatura y supervisoras también se editan en <strong>Aprobadores</strong>; los usuarios de sala, en <strong>Usuarios de salas y áreas</strong>.</p></section>` + (ro ? '' : vCuentas());
 }
-const NOM_ROL = {logistica:'Logística CEDIS', consulta:'Consulta'};
+const NOM_ROL = {logistica:'Logística CEDIS', consulta:'Consulta', gerencia:'Gerencia'};
 async function cambiarAdmin(email, activo, btn, r = 'logistica', alm){
   if(!activo && !await confirmar(`¿Quitar el rol de ${NOM_ROL[r]} a ${email}?`, {titulo:'Quitar rol', si:'Sí, quitar', tono:'btn-danger'})) return;
   const otro = ADMINS.find(a => a.email === email && a.activo && a.rol !== r);
@@ -1950,6 +1951,46 @@ document.addEventListener('click', e => {
   if(t.id === 'coAplicar') aplicarCorreos(t);
 });
 document.addEventListener('change', e => { if(e.target.id === 'fileCorreos' && e.target.files[0]){ leerCorreos(e.target.files[0]); e.target.value = ''; } });
+// ---------- grupos y aprobadores: Logística (nacional o de su almacén) y Gerencia pueden crear, editar y eliminar ----------
+const TIPOS_G = ['Sucursales','Oficina central','CEDIS','Sin asignar'];
+const editaGrupo = g => esNac() || !!rol.gerencia || (rol.admin && !!rol.almacen && (g ? g.almacen === rol.almacen : true));
+let grupoNuevo = false;
+function vGrupos(){
+  const conAlm = multiAlm(), puedeNuevo = editaGrupo(null), lista = GLall.filter(g => (almVista() === 'TODOS' || !g.almacen || g.almacen === almVista())).sort((a, b) => (b.activo !== false) - (a.activo !== false) || (a.orden || 0) - (b.orden || 0));
+  const selT = (id, v, dis) => `<select id="${id}" ${dis ? 'disabled' : ''} style="width:auto">${TIPOS_G.map(t => `<option ${t === v ? 'selected' : ''}>${t}</option>`).join('')}</select>`;
+  const filas = lista.map(g => { const ed = editaGrupo(g), act = g.activo !== false, nU = ULall.filter(u => u.grupo_id === g.id && u.activa).length;
+    return `<tr class="${act ? '' : 'cerrada'}"><td><input id="cfgG-${g.id}" value="${esc(g.nombre)}" maxlength="80" ${ed && act ? '' : 'disabled'} aria-label="Nombre del grupo"><div class="sub" style="margin:0">${conAlm ? (g.almacen ? esc(almNom(g.almacen)) : 'Nacional') : ''}${act ? '' : ' · <span class="chip alerta">eliminado</span>'}</div></td>
+      <td>${selT('cfgT-' + g.id, g.tipo, !(ed && act))}</td>
+      <td><input id="cfgN-${g.id}" value="${esc(g.aprobador)}" maxlength="80" ${ed && act ? '' : 'disabled'} aria-label="Aprobador"></td><td><input type="email" id="cfgE-${g.id}" value="${esc(g.aprobador_email || '')}" placeholder="correo@farmaciaschavez.com.bo" ${ed && act ? '' : 'disabled'} aria-label="Correo del aprobador"></td>
+      <td class="num">${nU}</td><td class="num" style="white-space:nowrap">${ed ? (act ? `<button class="btn btn-sm btn-primary" data-grp-save="${g.id}">Guardar</button> <button class="btn btn-sm btn-danger" data-grp-del="${g.id}" ${nU ? `disabled title="Tiene ${nU} salas o áreas activas: páselas a otro grupo primero"` : ''}>Eliminar</button>` : `<button class="btn btn-sm" data-grp-react="${g.id}">Reactivar</button>`) : ''}</td></tr>`; }).join('');
+  const nuevo = grupoNuevo ? `<tr class="nuevo-grupo"><td><input id="ngNombre" maxlength="80" placeholder="Ej: Grupo Dra. Ana Rojas (La Paz)"></td><td>${selT('ngTipo', 'Sucursales')}</td><td><input id="ngAprob" maxlength="80" placeholder="Nombre del aprobador"></td><td><input type="email" id="ngEmail" placeholder="correo@farmaciaschavez.com.bo"></td>
+      <td>${rol.almacen && !rol.gerencia ? esc(almNom(rol.almacen)) : `<select id="ngAlm" style="width:auto">${ALMS.map(a => `<option value="${esc(a.id)}" ${a.id === (almVista() === 'TODOS' ? 'SCZ' : almVista()) ? 'selected' : ''}>${esc(a.nombre)}</option>`).join('')}<option value="">Nacional</option></select>`}</td><td class="num" style="white-space:nowrap"><button class="btn btn-sm btn-primary" id="ngCrear">Crear</button> <button class="btn btn-sm" id="ngCancelar">Cancelar</button></td></tr>` : '';
+  return `<section class="panel${plegCls('aprob')}"><div class="panel-head"><div><h2>Grupos y aprobadores ${plegBtn('aprob')}</h2><p class="sub">Cada aprobador ingresa con el correo que figure aquí. Mientras no tenga correo, las solicitudes de su grupo las puede confirmar logística. Un grupo solo se puede eliminar si no tiene salas activas; queda guardado con su historial y se puede reactivar.</p></div>${puedeNuevo && !grupoNuevo ? '<div class="row"><button class="btn btn-primary" id="btnNuevoGrupo">+ Nuevo grupo</button></div>' : ''}</div>
+    <div class="tbl-wrap"><table><thead><tr><th>Grupo</th><th>Tipo</th><th>Aprobador</th><th>Correo para ingresar</th><th class="num">Salas activas</th><th></th></tr></thead><tbody>${nuevo}${filas}</tbody></table></div></section>`;
+}
+async function guardarGrupoUI(id, btn, activo){
+  const g = id ? G[id] || GLall.find(x => x.id === id) : null;
+  const nombre = (id ? $('cfgG-' + id) : $('ngNombre'))?.value.trim() ?? g?.nombre, tipo = (id ? $('cfgT-' + id) : $('ngTipo'))?.value || g?.tipo;
+  const aprob = (id ? $('cfgN-' + id) : $('ngAprob'))?.value.trim() ?? g?.aprobador, email = ((id ? $('cfgE-' + id) : $('ngEmail'))?.value ?? g?.aprobador_email ?? '').trim().toLowerCase();
+  if(!nombre){ toast('Escriba el nombre del grupo.'); return; }
+  if(email && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)){ toast('El correo no es válido.'); return; }
+  if(activo === false && !await confirmar(`¿Eliminar el grupo "${nombre}"? Queda guardado con su historial y se puede reactivar.`, {titulo:'Eliminar grupo', si:'Sí, eliminar'})) return;
+  const alm = id ? g?.almacen ?? null : (rol.almacen && !rol.gerencia ? rol.almacen : ($('ngAlm')?.value || null));
+  if(btn) btn.disabled = true;
+  const {data, error} = await sb.rpc('guardar_grupo', {p_id:id || null, p_nombre:nombre, p_tipo:tipo, p_almacen:alm, p_aprobador:aprob, p_email:email, p_activo:activo ?? true});
+  if(btn) btn.disabled = false;
+  if(error){ toast(errMsg(error)); return; }
+  toast(!id ? `Grupo "${nombre}" creado.` : activo === false ? `Grupo "${nombre}" eliminado.` : activo === true && g?.activo === false ? `Grupo "${nombre}" reactivado.` : 'Grupo guardado.');
+  grupoNuevo = false; await cargarBase().catch(() => {}); render();
+}
+document.addEventListener('click', e => { const t = e.target; if(!t.closest) return;
+  if(t.id === 'btnNuevoGrupo'){ grupoNuevo = true; render(); setTimeout(() => $('ngNombre')?.focus(), 30); }
+  if(t.id === 'ngCancelar'){ grupoNuevo = false; render(); }
+  if(t.id === 'ngCrear') guardarGrupoUI(null, t);
+  if(t.dataset.grpSave) guardarGrupoUI(t.dataset.grpSave, t);
+  if(t.dataset.grpDel) guardarGrupoUI(t.dataset.grpDel, t, false);
+  if(t.dataset.grpReact) guardarGrupoUI(t.dataset.grpReact, t, true);
+});
 // orden de la tabla de salas en Configuración: clic alterna ascendente → descendente → normal
 let ordCfg = {};
 const ORD_CFG = {nombre: u => +((/^SUC[\s.\-]*(\d+)/i.exec(u.nombre) || [])[1]) || null, cod: u => +normCod(u.codigo_sala) || null, muelle: u => u.muelle ? normTxt(u.muelle) : null, regional: u => u.regional ? normTxt(u.regional) : null, pres: u => u.presupuesto == null ? null : +u.presupuesto, grupo: u => normTxt(G[u.grupo_id]?.nombre || '')};
@@ -1962,12 +2003,7 @@ function vConfig(){
   const sin = UL.filter(u => u.activa && tipoG(u.grupo_id) === 'Sin asignar' && u.tipo === 'Sucursal').length, conMue = muellesAlm(almVista()), conAlm = multiAlm() && almVista() === 'TODOS';
   const gsU = u => GLall.filter(g => (g.activo !== false || g.id === u.grupo_id) && (!g.almacen || g.almacen === (u.almacen || 'SCZ')));
   const ro = !rol.admin;
-  return (ro ? '<div class="notice info">Configuración en <strong>solo lectura</strong>: puede revisar roles, aprobadores, salas y áreas, y el kit de apertura. Los cambios los hace Logística.' + (esFinal() ? ' Usted sí puede asignar el <strong>presupuesto mensual (Bs)</strong> de cada sala.' : '') + '</div>' + vRoles(true) : '') + (esNac() ? vRoles() : '') + `<section class="panel${plegCls('aprob')}"><div class="panel-head"><div><h2>Aprobadores ${plegBtn('aprob')}</h2><p class="sub">Cada aprobador ingresa con el correo que figure aquí. Mientras no tenga correo, sus solicitudes las puede confirmar logística.</p></div></div>
-    <div class="tbl-wrap"><table><thead><tr><th>Grupo</th><th>Nombre del aprobador</th><th>Correo para ingresar</th><th class="num">Unidades</th><th></th></tr></thead><tbody>` +
-    GL.filter(g => ro || esNac() || g.almacen === rol.almacen).map(g => `<tr><td><strong class="gtag" data-g="${esc(g.id)}">${esc(g.nombre)}</strong><div class="sub" style="margin:0">${esc(g.tipo)}${conAlm ? ' · ' + (g.almacen ? esc(almNom(g.almacen)) : 'Nacional') : ''}</div></td>
-      <td><input id="cfgN-${g.id}" value="${esc(g.aprobador)}" maxlength="80"></td><td><input type="email" id="cfgE-${g.id}" value="${esc(g.aprobador_email || '')}" placeholder="correo@farmaciachavez.com.bo"></td>
-      <td class="num">${UL.filter(u => u.grupo_id === g.id).length}</td><td><button class="btn btn-sm btn-primary" data-cfg-save="${g.id}">Guardar</button></td></tr>`).join('') +
-    `</tbody></table></div></section>
+  return (ro ? '<div class="notice info">Configuración en <strong>solo lectura</strong>: puede revisar roles, aprobadores, salas y áreas, y el kit de apertura. Los cambios los hace Logística.' + (esFinal() ? ' Usted sí puede asignar el <strong>presupuesto mensual (Bs)</strong> de cada sala' + (rol.gerencia ? ' y crear, editar o eliminar <strong>grupos y aprobadores</strong>.' : '.') : '') + '</div>' + vRoles(true) : '') + (esNac() ? vRoles() : '') + vGrupos() + `
     <section class="panel${plegCls('salas')}"><div class="panel-head"><div><h2>Sucursales y áreas por grupo ${plegBtn('salas')}</h2><div class="row" style="margin-top:6px;gap:6px"><button class="btn btn-primary" data-nueva-unidad="">+ Nueva sala o área</button><button class="btn btn-sm" id="btnPresPlant" title="Excel con las salas y su presupuesto actual">⬇ Plantilla de presupuestos</button><button class="btn btn-sm" id="btnPresSubir">⬆ Cargar presupuestos (Excel)</button><input type="file" id="filePres" accept=".xlsx,.xls,.csv" hidden></div><p class="sub">${sin ? `<span class="chip alerta">${sin} sucursales sin supervisora</span> · ` : ''}Cambie el grupo y se guarda al instante. Las salas eliminadas quedan al final y se pueden reactivar.</p></div>
       <div class="row"><input id="fCfgQ" placeholder="Buscar sucursal o código…" value="${esc(fCfgQ)}" style="width:200px">${selGrupo('fCfgGr', fCfgGr)}</div></div>
     <div class="tbl-wrap"><table><thead><tr>${thCfg('nombre','Sucursal / área')}${thCfg('cod','Cód. sala','num')}${conMue ? thCfg('muelle','Muelle','num') : ''}${thCfg('regional','Regional')}${thCfg('pres','Presupuesto Bs','num')}${thCfg('grupo','Grupo que aprueba')}<th>Enlace directo</th><th class="num">Sala</th></tr></thead><tbody>` +
@@ -2123,12 +2159,12 @@ $('detBody').addEventListener('click', async e => {
 // ---------- sesión ----------
 async function evaluarSesion(s){
   sesion = s; rol = {admin:false, grupos:[]};
-  if(s){ const {data} = await sb.rpc('mi_rol'); if(data) rol = {unidades:data.unidades || null, admin:!!data.admin, almacen:data.admin && data.almacen ? data.almacen : null, final:!!data.final, consulta:!!data.consulta, grupos:data.grupos || [], unidad:data.unidad || null}; }
+  if(s){ const {data} = await sb.rpc('mi_rol'); if(data) rol = {unidades:data.unidades || null, admin:!!data.admin, almacen:data.admin && data.almacen ? data.almacen : null, final:!!data.final, consulta:!!data.consulta, gerencia:!!data.gerencia, grupos:data.grupos || [], unidad:data.unidad || null}; }
   aplicarAlm();
   $('btnLogin').textContent = s ? 'Salir' : 'Ingresar';
-  $('roleChip').textContent = rol.admin ? (rol.almacen ? 'Logística ' + almNom(rol.almacen) : multiAlm() ? 'Logística nacional' : 'Logística CEDIS') : esConsulta() ? 'Consulta' + (salaUsuario() ? ' · ' + U[salaUsuario()].nombre : '') : esJefatura() ? 'Jefatura · ' + rol.grupos.map(g => G[g]?.aprobador).join(', ') : rol.unidad && U[rol.unidad] && !rol.grupos.length ? U[rol.unidad].nombre : rol.grupos.length ? 'Aprobador · ' + rol.grupos.map(g => G[g]?.aprobador).join(', ') : s ? 'Sin grupo asignado' : EXIGIR ? 'Sin ingresar' : 'Sucursal';
-  $('roleChip').classList.toggle('role', rol.admin || !!rol.consulta || rol.grupos.length > 0);
-  if(rol.admin){ try{ await cargarBase(); }catch(e){} }
+  $('roleChip').textContent = rol.admin ? (rol.almacen ? 'Logística ' + almNom(rol.almacen) : multiAlm() ? 'Logística nacional' : 'Logística CEDIS') : esConsulta() ? 'Consulta' + (salaUsuario() ? ' · ' + U[salaUsuario()].nombre : '') : rol.gerencia && !rol.admin ? 'Gerencia' : esJefatura() ? 'Jefatura · ' + rol.grupos.map(g => G[g]?.aprobador).join(', ') : rol.unidad && U[rol.unidad] && !rol.grupos.length ? U[rol.unidad].nombre : rol.grupos.length ? 'Aprobador · ' + rol.grupos.map(g => G[g]?.aprobador).join(', ') : s ? 'Sin grupo asignado' : EXIGIR ? 'Sin ingresar' : 'Sucursal';
+  $('roleChip').classList.toggle('role', rol.admin || !!rol.consulta || !!rol.gerencia || rol.grupos.length > 0);
+  if(rol.admin || rol.gerencia){ try{ await cargarBase(); }catch(e){} }
   if(listo && EXIGIR){ try{ await cargarPedidos(); }catch(e){} }
   await cargarPrecios();
   aplicarAlm();
@@ -2136,8 +2172,8 @@ async function evaluarSesion(s){
   if(esNac() || esJefatura()) await cargarAdmins();
   await cargarNuevos();
   activarPush(true);
-  if(s && !rol.admin && !rol.consulta && !rol.grupos.length && !rol.unidad) toast('Ingresó, pero su correo todavía no está vinculado a ninguna sala ni grupo. Pida a logística que lo registre.');
-  if((rol.admin || rol.consulta || rol.grupos.length) && (tab === 'solicitar' || !tab)) tab = rol.admin || esConsulta() ? 'tablero' : 'bandeja';
+  if(s && !rol.admin && !rol.consulta && !rol.gerencia && !rol.grupos.length && !rol.unidad) toast('Ingresó, pero su correo todavía no está vinculado a ninguna sala ni grupo. Pida a logística que lo registre.');
+  if((rol.admin || rol.consulta || rol.gerencia || rol.grupos.length) && (tab === 'solicitar' || !tab)) tab = rol.admin || esConsulta() || (rol.gerencia && !rol.grupos.length) ? 'tablero' : 'bandeja';
   if(tabPedida && planoTabs(tabsDisponibles()).some(x => x[0] === tabPedida)){ tab = tabPedida; tabPedida = null; }
   render();
 }
