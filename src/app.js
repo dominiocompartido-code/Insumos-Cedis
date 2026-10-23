@@ -584,7 +584,7 @@ function kpis(lista){
     <div class="kpi conf"><p>Aprobadas por entregar</p><b>${conf.length}</b><span>listas para preparar</span></div>
     <div class="kpi ent"><p>Entregadas · 7 días</p><b>${ent7.length}</b><span>solicitudes</span></div>
     <div class="kpi tiempo"><p>Tiempo a confirmar</p><b>${prom == null ? '–' : fDias(prom)}</b><span>promedio</span></div>
-    <div class="kpi tiempo"><p>Tiempo a entregar</p><b>${promE == null ? '–' : fDias(promE)}</b><span>desde la confirmación</span></div>${verPrecios() ? (() => { const c = cicloActivo(), l = lista.filter(p => cicloDe(p.ts) === c && (p.estado === 'Confirmada' || p.estado === 'Aprobada' || p.estado === 'Entregada')), v = l.reduce((a,p) => a + valorPedido(p, p.estado === 'Entregada').total, 0); return `<div class="kpi valor"><p>Valor del ciclo · ${esc(nombreCiclo(c))}</p><b>${fBs(v)}</b><span>${plural(l.length, 'solicitud aprobada', 'solicitudes aprobadas')}</span></div>`; })() : ''}</div>`;
+    <div class="kpi tiempo"><p>Tiempo a entregar</p><b>${promE == null ? '–' : fDias(promE)}</b><span>desde la confirmación</span></div>${verPrecios() ? (() => { const c = cicloActivo(), l = lista.filter(p => cicloDe(p.ts) === c && (p.estado === 'Confirmada' || p.estado === 'Aprobada' || p.estado === 'Entregada')), v = l.reduce((a,p) => a + valorPedido(p, p.estado === 'Entregada').total, 0); return `<div class="kpi valor"><p>Valor del ciclo · ${esc(nombreCiclo(c))}</p><b title="${fBs(v)}">Bs ${Math.round(v).toLocaleString('es-BO')}</b><span>${plural(l.length, 'solicitud aprobada', 'solicitudes aprobadas')}</span></div>`; })() : ''}</div>`;
 }
 // el Resumen muestra el ciclo actual (y lo que siga pendiente de ciclos anteriores)
 const PEND = ['Enviada','Confirmada','Aprobada'];
