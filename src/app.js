@@ -705,7 +705,7 @@ function vPreparacion(){
   const c = fPrepCiclo, enAlc = p => fPrepAlc === 'todo' || U[p.unidad_id]?.tipo === 'Sucursal';
   const aprob = pedidos.filter(p => enMesPrep(p) && enAlc(p)), pend = pedidos.filter(p => p.estado === 'Enviada' && enAlc(p));
   const salas = new Set(aprob.map(p => p.unidad_id)).size, falt = 0;
-  return `<section class="panel reporte"><div class="panel-head"><div><h2>Reporte de dotación</h2><p class="sub">Todas las solicitudes <strong>confirmadas en el mes</strong> que todavía no se entregaron. Excel con el formato de "Dotación Sucursales", listo para imprimir en carta.</p></div></div>
+  return `<section class="panel reporte"><div class="panel-head"><div><h2>Reporte de dotación</h2><p class="sub">Todas las solicitudes <strong>aprobadas del ciclo</strong> que todavía no se entregaron. Excel con el formato de "Dotación Sucursales", listo para imprimir en carta.</p></div></div>
     <div class="row"><label class="f">Ciclo<select id="fPrepCiclo">${[0,1,2,3,4,5].map(k => cicloMenos(cicloActivo(), k)).map(cc => `<option value="${cc}" ${cc === c ? 'selected' : ''}>${esc(nombreCiclo(cc))}</option>`).join('')}</select></label>
       <label class="f">Incluir<select id="fPrepAlc"><option value="sucursales" ${fPrepAlc === 'sucursales' ? 'selected' : ''}>Solo sucursales</option><option value="todo" ${fPrepAlc === 'todo' ? 'selected' : ''}>Sucursales, oficina central y CEDIS</option></select></label></div>
     <div class="resumen-rep"><span class="chip Aprobada">${plural(aprob.length, 'aprobada por entregar', 'aprobadas por entregar')} · ${plural(salas, 'sala o área', 'salas y áreas')}</span>${pend.length ? `<span class="chip Enviada">${plural(pend.length, 'por confirmar', 'por confirmar')}</span>` : '<span class="chip Entregada">todo confirmado</span>'}${falt ? `<span class="chip alerta">${plural(falt, 'sin solicitud', 'sin solicitud')}</span>` : ''}</div>
@@ -1241,7 +1241,7 @@ async function leerPresupuestos(file){
       const raw = String(f[cM] ?? '').trim().replace(/[^\d.,-]/g, ''), v = raw === '' ? null : parseFloat(raw.includes(',') && !raw.includes('.') ? raw.replace(',', '.') : raw.replace(/,/g, ''));
       if(v != null && (isNaN(v) || v < 0)) return; if((u.presupuesto ?? null) === v) return; res.push({id:u.id, monto:v, n:u.nombre}); });
     if(!res.length){ toast(`No hay cambios de presupuesto en el archivo.${noEnc.length ? ' No se encontraron: ' + noEnc.slice(0, 5).join(', ') : ''}`); return; }
-    if(!await confirmar(`¿Actualizar el presupuesto de ${plural(res.length, 'sala o área', 'salas y áreas')}?${noEnc.length ? `<p class="sub">No se encontraron ${noEnc.length}: ${esc(noEnc.slice(0, 8).join(', '))}${noEnc.length > 8 ? '…' : ''}</p>` : ''}`, {titulo:'Cargar presupuestos', si:'Actualizar', tono:'btn-primary'})) return;
+    if(!await confirmar(`¿Actualizar el presupuesto de ${plural(res.length, 'sala o área', 'salas y áreas')}?${noEnc.length ? `<p class="sub">No se encontraron ${noEnc.length}: ${esc(noEnc.slice(0, 8).join(', '))}${noEnc.length > 8 ? '…' : ''}</p>` : ''}`, {titulo:'Cargar presupuestos', si:'Actualizar', tono:'btn-primary', html:true})) return;
     const {error} = await sb.rpc('guardar_presupuestos', {p_items:res.map(({id, monto}) => ({id, monto}))}); if(error){ toast(errMsg(error)); return; }
     res.forEach(x => [U[x.id], ULall.find(u => u.id === x.id)].forEach(u => { if(u) u.presupuesto = x.monto; }));
     toast(`Presupuesto actualizado en ${plural(res.length, 'sala o área', 'salas y áreas')}.`); render();
@@ -1410,7 +1410,7 @@ async function generarReporte(btn){
   btn.disabled = true;
   try{
     const r = libroDotacion(c, fPrepAlc);
-    if(!r.salas){ toast('No hay solicitudes confirmadas por entregar en ese mes.'); return; }
+    if(!r.salas){ toast('No hay solicitudes aprobadas por entregar en ese ciclo.'); return; }
     const d = hoy(), f = `${d.getFullYear()}${pad(d.getMonth()+1)}${pad(d.getDate())}`;
     await descargar(r.bytes, `Dotacion_Sucursales_${f}.xlsx`);
     toast(`Reporte listo: ${plural(r.salas, 'sala', 'salas')}, ${plural(r.insumos, 'insumo', 'insumos')}, ${plural(r.paginas, 'hoja', 'hojas')} para imprimir.`);
