@@ -1145,7 +1145,7 @@ const esConsulta = () => !rol.admin && !!rol.consulta && !rol.grupos.length;
 const verTablero = () => rol.admin || !!rol.consulta || rol.grupos.some(g => g === 'OFC' || g === 'CEDIS');
 const esJefatura = () => !rol.admin && !esConsulta() && verTablero();
 const SUB_TABLERO = [['tablero','Resumen'],['bandeja','Por confirmar'],['final','Aprobación final'],['preparacion','Preparación'],['entregar','Por entregar']];
-const subTab = () => SUB_TABLERO.filter(x => (x[0] !== 'final' || esFinal()) && (x[0] !== 'bandeja' || !esConsulta()));
+const subTab = () => SUB_TABLERO.filter(x => (x[0] !== 'final' || (esFinal() && pedAll.some(p => p.estado === 'Confirmada'))) && (x[0] !== 'bandeja' || !esConsulta()));
 function tabsDisponibles(){
   if(esConsulta()) return [['solicitar','Solicitar'], ['seguimiento','Seguimiento'], ['tablero','Tablero', subTab()], ['inventario','Inventario'], ['cobertura','Cobertura'], ['todos','Todos'], ['materiales','Materiales']];
   const t = [['solicitar','Solicitar']]; if(rol.admin || !rol.grupos.length) t.push(['seguimiento','Seguimiento']);
@@ -1582,7 +1582,7 @@ function kpis(lista){
   const atras = env.filter(p => horas(Date.now() - p.ts) > 48).length;
   return `<div class="kpis">
     <div class="kpi env"><p>Por confirmar</p><b>${env.length}</b><span>${atras ? `<span class="chip alerta">${atras} con más de 2 días</span>` : 'al día'}</span></div>
-    <div class="kpi fin"><p>En aprobación final</p><b>${fin.length}</b><span>esperan a Finanzas</span></div>
+    ${fin.length ? `<div class="kpi fin"><p>En aprobación final</p><b>${fin.length}</b><span>esperan a Finanzas</span></div>` : ''}
     <div class="kpi conf"><p>Aprobadas por entregar</p><b>${conf.length}</b><span>listas para preparar</span></div>
     <div class="kpi ent"><p>Entregadas · 7 días</p><b>${ent7.length}</b><span>solicitudes</span></div>
     <div class="kpi tiempo"><p>Tiempo a confirmar</p><b>${prom == null ? '–' : fDias(prom)}</b><span>promedio</span></div>
@@ -1593,7 +1593,7 @@ const PEND = ['Enviada','Confirmada','Aprobada'];
 const delCicloActual = () => { const c = cicloActivo(); return pedidos.filter(p => cicloP(p) === c || PEND.includes(p.estado)); };
 function mapa(grupos){
   const ult = {}; delCicloActual().forEach(p => { if(!ult[p.unidad_id] || ult[p.unidad_id].ts < p.ts) ult[p.unidad_id] = p; });
-  return `<div class="leyenda"><span><i></i>Sin solicitud</span><span><i class="Enviada"></i>Enviada</span><span><i class="Confirmada"></i>Por aprobación final</span><span><i class="Aprobada"></i>Aprobada</span><span><i class="Entregada"></i>Entregada</span><span><i class="Rechazada"></i>Rechazada</span></div><div class="mapa">` +
+  return `<div class="leyenda"><span><i></i>Sin solicitud</span><span><i class="Enviada"></i>Enviada</span>${pedidos.some(p => p.estado === 'Confirmada') ? '<span><i class="Confirmada"></i>Por aprobación final</span>' : ''}<span><i class="Aprobada"></i>Aprobada</span><span><i class="Entregada"></i>Entregada</span><span><i class="Rechazada"></i>Rechazada</span></div><div class="mapa">` +
     grupos.map(g => { const us = UL.filter(u => u.grupo_id === g.id && u.activa); if(!us.length) return '';
       const pend = us.filter(u => ult[u.id]?.estado === 'Enviada').length, suc = g.tipo === 'Sucursales' || g.tipo === 'Sin asignar';
       return `<div class="grupo-mapa" data-g="${esc(g.id)}"><header><strong>${esc(g.nombre)} · ${esc(g.aprobador)}</strong><span class="sub" style="margin:0">${us.length} ${suc ? 'sucursales' : 'áreas'}${pend ? ` · <span class="chip Enviada">${pend} por confirmar</span>` : ''}</span></header>
@@ -2799,7 +2799,8 @@ document.addEventListener('mousemove', e => { const t = document.getElementById(
 document.addEventListener('click', e => { const el = e.target.closest?.('[data-tip]'); if(!el) return; let t = document.getElementById('tip'); if(!t){ t = document.createElement('div'); t.id = 'tip'; document.body.append(t); } t.textContent = el.dataset.tip; t.hidden = false; const r = el.getBoundingClientRect(); t.style.left = Math.max(8, Math.min(innerWidth - t.offsetWidth - 8, r.left)) + 'px'; t.style.top = (r.bottom + 6) + 'px'; setTimeout(() => t.hidden = true, 2500); });
 
 // ---------- aprobación final (Finanzas: Helen; respaldo: Logística) ----------
-const requiereFinal = p => p.tipo !== 'Apertura' && !['CEDIS','Oficina central'].includes(tipoG(U[p.unidad_id]?.grupo_id));
+// desde 2026-10-23 ya no hay aprobación final: la confirmación del aprobador del grupo deja la solicitud Aprobada
+const requiereFinal = () => false;
 function vFinal(){
   const l = pedidos.filter(p => p.estado === 'Confirmada').sort((a, b) => a.confirmado_ts - b.confirmado_ts), n = l.filter(p => sel.has(p.id)).length;
   const val = verPrecios() ? l.reduce((a, p) => a + valorPedido(p, false).total, 0) : 0, valSel = verPrecios() ? l.filter(p => sel.has(p.id)).reduce((a, p) => a + valorPedido(p, false).total, 0) : 0;
