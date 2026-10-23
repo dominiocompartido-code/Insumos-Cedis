@@ -289,3 +289,5 @@ alter table public.maestro add column if not exists reemplazo text;
 update public.maestro set reemplazo = '27233' where codigo = '25645';
 -- 2026-10-23: consulta puede pedir para cualquier sala o área
 -- puede_pedir(): se agregó public.es_consulta()
+-- 2026-10-23: jefatura (Helen, Hubert) ve la lista de roles
+-- es_jefatura(); listar_roles_alm() permite is_admin() or es_jefatura()
