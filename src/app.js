@@ -303,6 +303,10 @@ document.addEventListener('change', e => {
   if(id === 'fMatCat'){ fMatCat = e.target.value; pintaMateriales(); }
   if(e.target.dataset.trasp){ const id = e.target.dataset.trasp, v = e.target.value.trim(), q = pedidos.find(x => x.id === id);
     sb.rpc('guardar_traspaso', {p_id:id, p_nro:v}).then(({error}) => { if(error){ toast(errMsg(error)); return; } if(q) q.nro_traspaso = v || null; toast(v ? `${q?.codigo}: traspaso ${v} guardado.` : `${q?.codigo}: traspaso borrado.`); }); }
+  if(e.target.dataset.pres){ const id = e.target.dataset.pres, raw = e.target.value.trim(), v = raw === '' ? null : +raw;
+    if(v != null && (isNaN(v) || v < 0)){ toast('Monto inválido.'); e.target.value = U[id]?.presupuesto ?? ''; return; }
+    sb.rpc('guardar_presupuestos', {p_items:[{id, monto:v}]}).then(({error}) => { if(error){ toast(errMsg(error)); return; } [U[id], ULall.find(x => x.id === id)].forEach(x => { if(x) x.presupuesto = v; }); toast(`${U[id]?.nombre}: ${v == null ? 'sin límite de presupuesto' : 'presupuesto ' + fBs(v) + ' al mes'}.`); }); }
+  if(e.target.id === 'filePres' && e.target.files[0]){ leerPresupuestos(e.target.files[0]); e.target.value = ''; }
   if(e.target.dataset.cat){ cambiarCategoria(e.target.dataset.cat, e.target.value, e.target); }
   if(e.target.dataset.precio){ const cod = e.target.dataset.precio, raw = e.target.value.trim(), v = +raw;
     if(raw === '' || isNaN(v) || v < 0){ toast('Ingrese un precio válido (0 o más).'); e.target.value = P[cod] != null ? +P[cod].toFixed(2) : ''; return; }
@@ -355,6 +359,7 @@ function vSolicitar(){
     <button class="btn btn-danger" id="btnVaciar" ${borrador.length ? '' : 'disabled'}>Eliminar todo</button></div>
     ${(() => { const ant = ultimoPedido(u.id); return ant ? `<div class="anterior"><span>Último pedido: <strong>${esc(ant.codigo)}</strong> · ${fF(ant.ts)} · ${ant.items.length} insumos · ${chip(ant.estado)}</span><button class="btn btn-accent btn-sm" id="btnAnterior">Cargar pedido anterior</button></div>` : ''; })()}
     <div class="tbl-wrap"><table><thead><tr><th class="hide-sm">Código</th><th>Insumo</th><th class="num hide-sm">Unidad</th><th class="num">Cantidad</th>${verCosto() ? '<th class="num hide-sm">Costo unit.</th><th class="num">Subtotal</th>' : ''}<th class="num"><span class="hide-sm">Quitar</span></th></tr></thead><tbody id="nItems"></tbody></table></div>
+    <div id="nPres"></div>
     <div class="row" style="justify-content:space-between"><span class="sub" id="nResumen" style="margin:0"></span><button class="btn btn-primary btn-lg" id="nEnviar">${editandoId ? 'Guardar cambios' : 'Enviar solicitud'}</button></div></section>`;
   return h;
 }
@@ -379,6 +384,25 @@ function cargarAnterior(){
 }
 const precioSel = cod => { const v = (P_ALM[unidadSel ? almDeU(unidadSel) : almCosto()] || {})[cod]; return v != null && !isNaN(+v) ? +v : null; };
 const celBs = v => v == null ? '<span class="sub">sin precio</span>' : fBs(v);
+// ---------- presupuesto mensual por sala (Bs, sin aperturas, no se acumula) ----------
+const EST_PRES = ['Enviada','Confirmada','Aprobada','Entregada'];
+const usadoCiclo = (uid, c, excl) => pedAll.filter(p => p.unidad_id === uid && p.tipo !== 'Apertura' && EST_PRES.includes(p.estado) && p.id !== excl && cicloP(p) === c).reduce((a, p) => a + valorPedido(p, p.estado === 'Entregada').total, 0);
+function estadoPres(){
+  const u = unidadSel && U[unidadSel]; if(!u || u.presupuesto == null || esApertura) return null;
+  const ed = editandoId && pedidos.find(x => x.id === editandoId), c = ed ? cicloP(ed) : cicloActivo();
+  const usado = usadoCiclo(u.id, c, ed ? ed.id : null), este = borrador.filter(i => i.cantidad > 0).reduce((a, i) => a + (precioSel(i.codigo) || 0) * i.cantidad, 0);
+  const pres = +u.presupuesto, disp = pres - usado;
+  return {c, pres, usado, este, disp, resta: disp - este, excede: este > disp + 0.005};
+}
+function pintaPres(){
+  const box = $('nPres'), b = $('nEnviar'); if(!box) return; const e = estadoPres();
+  if(!e){ box.innerHTML = ''; if(b) b.disabled = false; return; }
+  const pct = e.pres ? Math.min(100, (e.usado + e.este) / e.pres * 100) : 100, cls = e.excede ? 'mal' : pct >= 85 ? 'alerta' : 'bien';
+  box.innerHTML = `<div class="pres ${cls}"><div class="pres-n"><span>Presupuesto ${esc(nombreCiclo(e.c))}: <strong>${fBs(e.pres)}</strong></span>${e.usado ? `<span>Ya usado: <strong>${fBs(e.usado)}</strong></span>` : ''}<span>Esta solicitud: <strong>${fBs(e.este)}</strong></span><span>${e.excede ? `Se pasa por <strong>${fBs(-e.resta)}</strong>` : `Le queda: <strong>${fBs(e.resta)}</strong>`}</span></div>
+    <div class="pres-bar"><i style="width:${e.pres ? Math.min(100, e.usado / e.pres * 100) : 0}%" class="u"></i><i style="width:${e.pres ? Math.max(0, Math.min(100, e.este / e.pres * 100, 100 - e.usado / e.pres * 100)) : 0}%" class="e"></i></div>
+    ${e.excede ? '<p class="sub" style="margin:0"><strong>No puede enviar la solicitud:</strong> supera el presupuesto mensual de la sala. Reduzca cantidades o quite insumos.</p>' : ''}</div>`;
+  if(b) b.disabled = e.excede;
+}
 function pintaBorrador(){
   const tb = $('nItems'); if(!tb) return;
   tb.innerHTML = borrador.length ? borrador.map((i,k) => `<tr><td class="code hide-sm">${esc(i.codigo)}</td><td>${esc(i.descripcion)}<div class="sub show-sm">${esc(i.codigo)} · ${esc(i.unidad)}</div></td><td class="num hide-sm">${esc(i.unidad)}</td>
@@ -388,7 +412,7 @@ function pintaBorrador(){
   pintaResumen();
 }
 function pintaResumen(){
-  const r = $('nResumen'); if(!r) return;
+  pintaPres(); const r = $('nResumen'); if(!r) return;
   const con = borrador.filter(i => i.cantidad > 0), cero = borrador.length - con.length;
   let txt = `${con.length} insumos con cantidad${cero ? ` · ${cero} en cero no se enviarán` : ''}`;
   if(verCosto() && con.length){ let tot = 0, sin = 0; con.forEach(i => { const pu = precioSel(i.codigo); if(pu == null) sin++; else tot += pu * i.cantidad; });
@@ -473,6 +497,7 @@ async function enviar(btn){
   const items = borrador.filter(i => i.cantidad > 0).map(i => ({...i, observacion:'-'}));
   if(esApertura){ fechaAp = $('nFechaAp')?.value || fechaAp; if(!fechaAp){ toast('Indique la fecha de inauguración de la sala.'); $('nFechaAp')?.focus(); return; } }
   if(!items.length){ toast('Ponga cantidad al menos a un insumo.'); return; }
+  { const ep = estadoPres(); if(ep && ep.excede){ toast(`Supera el presupuesto de la sala en ${fBs(-ep.resta)}. Reduzca cantidades.`); return; } }
   if(editandoId) return guardarEdicion(btn, nombre, items);
   const u = U[unidadSel], ap = G[u?.grupo_id]?.aprobador || 'Logística CEDIS', tot = items.reduce((a,i) => a + (+i.cantidad || 0), 0);
   const ok = await confirmar(`<div class="conf-envio"><span class="sub" style="margin:0">Va a enviar la solicitud de</span><b>${esc(u?.nombre || '')}</b><span>${plural(items.length, 'insumo', 'insumos')} · ${tot} unidades en total</span><span>Solicita: <strong>${esc(nombre)}</strong> · La aprueba: <strong>${esc(ap)}</strong></span>${esApertura ? `<span><span class="chip apertura">Apertura</span> ${esc(txtAbre(fechaAp))}</span>` : ''}</div><p class="sub" style="margin:8px 0 0">Revise que sea su ${u?.tipo === 'Sucursal' ? 'sucursal' : 'área'}. Si se equivoca, podrá anularla desde Seguimiento mientras no la confirmen.</p>`, {html:true, titulo:'¿Es la sala correcta?', si:'Sí, enviar', tono:'btn-primary'});
@@ -935,12 +960,13 @@ function vConfig(){
       <td><input id="cfgN-${g.id}" value="${esc(g.aprobador)}" maxlength="80"></td><td><input type="email" id="cfgE-${g.id}" value="${esc(g.aprobador_email || '')}" placeholder="correo@farmaciachavez.com.bo"></td>
       <td class="num">${UL.filter(u => u.grupo_id === g.id).length}</td><td><button class="btn btn-sm btn-primary" data-cfg-save="${g.id}">Guardar</button></td></tr>`).join('') +
     `</tbody></table></div></section>
-    <section class="panel${plegCls('salas')}"><div class="panel-head"><div><h2>Sucursales y áreas por grupo ${plegBtn('salas')}</h2><button class="btn btn-primary" data-nueva-unidad="" style="margin-top:6px">+ Nueva sala o área</button><p class="sub">${sin ? `<span class="chip alerta">${sin} sucursales sin supervisora</span> · ` : ''}Cambie el grupo y se guarda al instante. Las salas eliminadas quedan al final y se pueden reactivar.</p></div>
+    <section class="panel${plegCls('salas')}"><div class="panel-head"><div><h2>Sucursales y áreas por grupo ${plegBtn('salas')}</h2><div class="row" style="margin-top:6px;gap:6px"><button class="btn btn-primary" data-nueva-unidad="">+ Nueva sala o área</button><button class="btn btn-sm" id="btnPresPlant" title="Excel con las salas y su presupuesto actual">⬇ Plantilla de presupuestos</button><button class="btn btn-sm" id="btnPresSubir">⬆ Cargar presupuestos (Excel)</button><input type="file" id="filePres" accept=".xlsx,.xls,.csv" hidden></div><p class="sub">${sin ? `<span class="chip alerta">${sin} sucursales sin supervisora</span> · ` : ''}Cambie el grupo y se guarda al instante. Las salas eliminadas quedan al final y se pueden reactivar.</p></div>
       <div class="row"><input id="fCfgQ" placeholder="Buscar sucursal o código…" value="${esc(fCfgQ)}" style="width:200px">${selGrupo('fCfgGr', fCfgGr)}</div></div>
-    <div class="tbl-wrap"><table><thead><tr><th>Sucursal / área</th><th class="num">Cód. sala</th>${conMue ? '<th class="num">Muelle</th>' : ''}<th>Regional</th><th>Grupo que aprueba</th><th>Enlace directo</th><th class="num">Sala</th></tr></thead><tbody>` +
+    <div class="tbl-wrap"><table><thead><tr><th>Sucursal / área</th><th class="num">Cód. sala</th>${conMue ? '<th class="num">Muelle</th>' : ''}<th>Regional</th><th class="num" title="Presupuesto mensual en Bs (sin aperturas). Vacío = sin límite">Presupuesto Bs</th><th>Grupo que aprueba</th><th>Enlace directo</th><th class="num">Sala</th></tr></thead><tbody>` +
     (us.length ? us.map(u => `<tr class="${u.activa ? '' : 'cerrada'}"><td><strong>${esc(u.nombre)}</strong><div class="sub" style="margin:0">${esc(u.tipo)}${conAlm ? ' · <span class="chip alm">' + esc(almNom(u.almacen || 'SCZ')) + '</span>' : ''}${u.creada_ts ? ' · abrió ' + fCorta(new Date(u.creada_ts)) + '/' + new Date(u.creada_ts).getFullYear() : ''}${u.activa ? '' : ' · <span class="chip alerta">eliminada</span>'}${u.correo ? `<br><span title="Usuario que ingresa como esta sala">👤 ${esc(u.correo)}</span>` : ''}${(u.correos_extra || []).length ? `<br><span title="Usuarios adicionales que también pueden pedir por esta sala">➕ ${esc(u.correos_extra.join(', '))}</span>` : ''}</div></td><td class="num mono">${esc(u.codigo_sala || '–')}</td>${conMue ? `<td class="num">${esc(u.muelle || '–')}</td>` : ''}<td>${esc(u.regional || '–')}</td>
+      <td class="num"><input type="number" min="0" step="1" class="qty pres-in" data-pres="${esc(u.id)}" value="${u.presupuesto != null ? esc(+u.presupuesto) : ''}" placeholder="sin límite" aria-label="Presupuesto mensual de ${esc(u.nombre)}" style="width:96px"></td>
       <td><select data-ug="${esc(u.id)}" id="ug-${esc(u.id)}" aria-label="Grupo de ${esc(u.nombre)}">${gsU(u).map(g => `<option value="${g.id}" ${u.grupo_id === g.id ? 'selected' : ''}>${esc(g.nombre)}</option>`).join('')}</select></td>
-      <td class="mono sub" style="font-size:11px;word-break:break-all">?u=${esc(u.id)}</td><td class="num" style="white-space:nowrap">${botonEditar(u)}${botonCerrar(u)}</td></tr>`).join('') : '<tr><td colspan="7" class="empty">Ninguna coincide.</td></tr>') +
+      <td class="mono sub" style="font-size:11px;word-break:break-all">?u=${esc(u.id)}</td><td class="num" style="white-space:nowrap">${botonEditar(u)}${botonCerrar(u)}</td></tr>`).join('') : '<tr><td colspan="8" class="empty">Ninguna coincide.</td></tr>') +
     `</tbody></table></div><p class="sub" style="margin:0">El enlace directo abre la página con esa sucursal ya elegida: agregue <span class="mono">?u=CÓDIGO</span> al final de la dirección de la página. <button class="btn btn-sm" id="btnCopiarLink">Copiar lista de enlaces</button></p></section>` + (esNac() || ro ? vKit() : '');
 }
 // ---------- kit de apertura (editable por logística) ----------
@@ -1052,7 +1078,7 @@ function pintaDet(){
     else if(reab && !(esFinal() && p.estado === 'Confirmada')) h += `<div class="row right"><span class="sub" style="margin:0">¿Se confirmó o rechazó por error?</span><button class="btn" id="dReabrir">Volver a revisar</button></div>`;
   }
   if(verCosto()){ const vc = valorPedido(p, false), ve = p.items_entregados ? valorPedido(p, true) : null;
-    h += `<div class="valor-det"><span>${p.estado === 'Enviada' ? 'Valor de lo pedido' : 'Valor confirmado'}: <strong>${fBs(vc.total)}</strong></span>${ve ? `<span>Valor entregado: <strong>${fBs(ve.total)}</strong> <span class="chip alerta">−${fBs(vc.total - ve.total)}</span></span>` : ''}${vc.sin ? `<span class="sub" style="margin:0">${plural(vc.sin, 'insumo sin precio cargado', 'insumos sin precio cargado')}</span>` : ''}${p.precios ? `<span class="sub" style="margin:0">${esHist(p) ? 'Costos del traspaso' : 'Precios al momento de confirmar'}</span>` : ''}</div>`; }
+    h += `<div class="valor-det"><span>${p.estado === 'Enviada' ? 'Valor de lo pedido' : 'Valor confirmado'}: <strong>${fBs(vc.total)}</strong></span>${ve ? `<span>Valor entregado: <strong>${fBs(ve.total)}</strong> <span class="chip alerta">−${fBs(vc.total - ve.total)}</span></span>` : ''}${vc.sin ? `<span class="sub" style="margin:0">${plural(vc.sin, 'insumo sin precio cargado', 'insumos sin precio cargado')}</span>` : ''}${p.precios ? `<span class="sub" style="margin:0">${esHist(p) ? 'Costos del traspaso' : 'Precios al momento de confirmar'}</span>` : ''}${U[p.unidad_id]?.presupuesto != null && p.tipo !== 'Apertura' && !esHist(p) ? (() => { const pr = +U[p.unidad_id].presupuesto, us = usadoCiclo(p.unidad_id, cicloP(p)); return `<span class="${us > pr + 0.005 ? 'chip alerta' : 'sub'}" style="margin:0">Presupuesto ${esc(nombreCiclo(cicloP(p)))}: ${fBs(pr)} · usado ${fBs(us)}</span>`; })() : ''}</div>`; }
   $('detBody').innerHTML = h;
   pintaEntResumen();
 }
@@ -1190,6 +1216,31 @@ async function confirmarVarios(btn){
   sel.clear(); toast(`${plural(data ?? ids.length, 'solicitud confirmada', 'solicitudes confirmadas')}.`); cargarPedidos();
 }
 // ---------- carga masiva de N° de traspaso desde Excel ----------
+function plantillaPresupuestos(){
+  const l = UL.filter(u => u.activa).sort((a, b) => ordU(a) - ordU(b)), W = XL.libro(), h = W.hoja('Presupuestos'), cab = {b:true};
+  ['Cód. sala','Sala / área','Tipo','Almacén','Presupuesto Bs'].forEach((t, c) => h.set(0, c, t, cab)); [11,38,16,12,15].forEach((w, c) => h.anchos[c] = w);
+  l.forEach((u, r) => { h.set(r + 1, 0, u.codigo_sala || u.id); h.set(r + 1, 1, u.nombre); h.set(r + 1, 2, u.tipo || ''); h.set(r + 1, 3, almNom(u.almacen || 'SCZ')); h.set(r + 1, 4, u.presupuesto != null ? +u.presupuesto : null, {fill:'FFFFF2CC'}); });
+  h.freeze = 1; descargar(W.generar(), `Presupuestos_salas_${hoyISO()}.xlsx`);
+}
+async function leerPresupuestos(file){
+  try{
+    await cargarLibXLSX();
+    const wb = XLSX.read(await file.arrayBuffer(), {type:'array'}), filas = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], {header:1, raw:true, defval:''}).filter(f => f.some(c => String(c).trim()));
+    const hi = filas.findIndex(f => f.some(c => /presup|monto|bs/i.test(String(c)))); if(hi < 0){ toast('No encontré la columna de presupuesto (Presupuesto Bs / Monto).'); return; }
+    const cab = filas[hi].map(c => normTxt(String(c))), cM = cab.findIndex(t => /presup|monto|bs/.test(t)), cC = cab.findIndex(t => /cod/.test(t)), cN = cab.findIndex(t => /sala|sucursal|area|nombre/.test(t) && !/cod/.test(t));
+    const res = [], noEnc = [];
+    filas.slice(hi + 1).forEach(f => { const cod = cC >= 0 ? String(f[cC] ?? '').trim() : '', nom = cN >= 0 ? String(f[cN] ?? '').trim() : ''; if(!cod && !nom) return;
+      const u = UL.find(x => cod && (x.id === cod || (x.codigo_sala && normCod(x.codigo_sala) === normCod(cod)))) || UL.find(x => nom && normTxt(x.nombre) === normTxt(nom));
+      if(!u){ noEnc.push(cod || nom); return; }
+      const raw = String(f[cM] ?? '').trim().replace(/[^\d.,-]/g, ''), v = raw === '' ? null : parseFloat(raw.includes(',') && !raw.includes('.') ? raw.replace(',', '.') : raw.replace(/,/g, ''));
+      if(v != null && (isNaN(v) || v < 0)) return; if((u.presupuesto ?? null) === v) return; res.push({id:u.id, monto:v, n:u.nombre}); });
+    if(!res.length){ toast(`No hay cambios de presupuesto en el archivo.${noEnc.length ? ' No se encontraron: ' + noEnc.slice(0, 5).join(', ') : ''}`); return; }
+    if(!await confirmar(`¿Actualizar el presupuesto de ${plural(res.length, 'sala o área', 'salas y áreas')}?${noEnc.length ? `<p class="sub">No se encontraron ${noEnc.length}: ${esc(noEnc.slice(0, 8).join(', '))}${noEnc.length > 8 ? '…' : ''}</p>` : ''}`, {titulo:'Cargar presupuestos', si:'Actualizar', tono:'btn-primary'})) return;
+    const {error} = await sb.rpc('guardar_presupuestos', {p_items:res.map(({id, monto}) => ({id, monto}))}); if(error){ toast(errMsg(error)); return; }
+    res.forEach(x => [U[x.id], ULall.find(u => u.id === x.id)].forEach(u => { if(u) u.presupuesto = x.monto; }));
+    toast(`Presupuesto actualizado en ${plural(res.length, 'sala o área', 'salas y áreas')}.`); render();
+  }catch(e){ toast(errMsg(e)); }
+}
 function plantillaTraspasos(){
   // Formato para generar los traspasos en el sistema: una fila por material solicitado
   const l = pedidos.filter(p => p.estado === 'Aprobada' && usaTraspaso(p)).sort((a,b) => ordenApert(a,b) || ordU(U[a.unidad_id] || {}) - ordU(U[b.unidad_id] || {}));
@@ -1330,6 +1381,8 @@ document.addEventListener('change', e => {
 document.addEventListener('click', e => {
   if(e.target.id === 'btnSubirTrasp') $('fileTrasp').click();
   if(e.target.id === 'btnPlantTrasp') plantillaTraspasos();
+  if(e.target.id === 'btnPresPlant') plantillaPresupuestos();
+  if(e.target.id === 'btnPresSubir') $('filePres').click();
   if(e.target.id === 'trAplicar') aplicarTraspasos(e.target);
 });
 async function entregarVarios(btn){

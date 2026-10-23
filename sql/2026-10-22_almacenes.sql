@@ -291,3 +291,5 @@ update public.maestro set reemplazo = '27233' where codigo = '25645';
 -- puede_pedir(): se agregó public.es_consulta()
 -- 2026-10-23: jefatura (Helen, Hubert) ve la lista de roles
 -- es_jefatura(); listar_roles_alm() permite is_admin() or es_jefatura()
+-- 2026-10-23: presupuesto mensual por sala (migración presupuesto_salas)
+-- unidades.presupuesto; ciclo_de(); valor_items(); usado_presupuesto(); trigger trg_controlar_presupuesto (bloquea envío/edición si supera); guardar_presupuestos(jsonb)
