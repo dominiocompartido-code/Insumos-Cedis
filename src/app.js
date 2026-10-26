@@ -406,7 +406,7 @@ function pintaPres(){
   const pct = e.pres ? Math.min(100, (e.usado + e.este) / e.pres * 100) : 100, cls = e.excede ? 'mal' : pct >= 85 ? 'alerta' : 'bien';
   box.innerHTML = `<div class="pres ${cls}"><div class="pres-n"><span>Presupuesto ${esc(nombreCiclo(e.c))}: <strong>${fBs(e.pres)}</strong></span>${e.usado ? `<span>Ya usado: <strong>${fBs(e.usado)}</strong></span>` : ''}<span>Esta solicitud: <strong>${fBs(e.este)}</strong></span><span>${e.excede ? `Se pasa por <strong>${fBs(-e.resta)}</strong>` : `Le queda: <strong>${fBs(e.resta)}</strong>`}</span></div>
     <div class="pres-bar"><i style="width:${e.pres ? Math.min(100, e.usado / e.pres * 100) : 0}%" class="u"></i><i style="width:${e.pres ? Math.max(0, Math.min(100, e.este / e.pres * 100, 100 - e.usado / e.pres * 100)) : 0}%" class="e"></i></div>
-    ${e.excede ? '<p class="sub" style="margin:0"><strong>No puede enviar la solicitud:</strong> supera el presupuesto mensual ${U[unidadSel]?.tipo === 'Sucursal' ? 'de la sala' : 'del área'}. Reduzca cantidades o quite insumos.</p>' : ''}</div>`;
+    ${e.excede ? `<p class="sub" style="margin:0"><strong>No puede enviar la solicitud:</strong> supera el presupuesto mensual ${U[unidadSel]?.tipo === 'Sucursal' ? 'de la sala' : 'del área'}. Reduzca cantidades o quite insumos.</p>` : ''}</div>`;
   if(b) b.disabled = e.excede;
 }
 function pintaBorrador(){
