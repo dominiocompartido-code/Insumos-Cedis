@@ -298,3 +298,4 @@ update public.maestro set reemplazo = '27233' where codigo = '25645';
 -- 2026-10-23: rol gerencia (Helen) en admins; es_gerencia(); guardar_grupo(); OFC aprobado por Olvy Tomicha
 -- 2026-10-23: rol jefatura (Hubert) en admins; es_jefatura() por rol, ya no por grupo; Olvy y Juan quedan como aprobadores (supervisora)
 -- 2026-10-26: áreas de oficina unidas (unidades.area_ofc), presupuesto compartido; grupos SUP-ELVA/JOVANA/LINA (LPZ), SUP-RANDY (Regional Occidente), OFC-LPZ
+-- 2026-10-26: presupuesto por % del grupo (grupos.presupuesto, unidades.pres_pct, presupuesto_efectivo()); % del Cedi Scz cargados sobre base 14.500
