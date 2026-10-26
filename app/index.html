@@ -102,6 +102,7 @@ tr.tot td{font-weight:700;background:var(--surface-2)}
 .alm-cel{white-space:nowrap}
 .alm-costo{display:inline-flex;flex-direction:row;align-items:center;gap:6px;margin:0}
 .alm-costo select{width:auto}
+.area-alm{display:flex;flex-wrap:wrap;align-items:center;gap:6px 8px;margin:6px 0}
 .pres{border:1px solid var(--line);border-radius:10px;padding:10px 12px;margin:8px 0;display:grid;gap:6px}.pres.bien{background:#eefaf1;border-color:#bfe5c9}.pres.alerta{background:#fff8e6;border-color:#f3d48a}.pres.mal{background:#fdeeee;border-color:#f1b5b5}.pres-n{display:flex;flex-wrap:wrap;gap:4px 18px;font-size:13px}.pres-bar{height:8px;border-radius:5px;background:rgba(0,0,0,.08);display:flex;overflow:hidden}.pres-bar i{display:block;height:100%}.pres-bar .u{background:#7a8ca3}.pres-bar .e{background:#1565c0}.pres.mal .pres-bar .e{background:#d93636}
 .valor-det{display:flex;flex-wrap:wrap;align-items:baseline;gap:4px 18px;margin-top:10px}
 .chip.Enviada{background:var(--st-env-bg);color:var(--st-env)}
@@ -1237,8 +1238,12 @@ function selectorUnidad(id, val){
     <div class="results combo-lista" id="${id}-lista" role="listbox" hidden></div></div>`;
 }
 const normTxt = s => String(s || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+// áreas de Oficina central unidas: una unidad por almacén con la misma clave area_ofc; en el buscador se ve una sola
+const idsArea = u => u?.area_ofc ? ULall.filter(x => x.area_ofc === u.area_ofc).map(x => x.id) : (u ? [u.id] : []);
+const gemelos = u => u?.area_ofc ? ULall.filter(x => x.area_ofc === u.area_ofc && x.activa) : (u ? [u] : []);
+const gemeloOculto = u => !!u.area_ofc && u.area_ofc !== u.id && UL.some(x => x.id === u.area_ofc && x.activa);
 function filtrarUnidades(q){
-  const act = UL.filter(u => u.activa), t = normTxt(q).trim();
+  const act = UL.filter(u => u.activa && !gemeloOculto(u)), t = normTxt(q).trim();
   if(!t) return act;
   const num = /^\d+$/.test(t) ? t : null, pal = t.split(/\s+/);
   return act.map(u => {
@@ -1308,7 +1313,7 @@ document.addEventListener('change', e => {
     sb.rpc('guardar_traspaso', {p_id:id, p_nro:v}).then(({error}) => { if(error){ toast(errMsg(error)); return; } if(q) q.nro_traspaso = v || null; toast(v ? `${q?.codigo}: traspaso ${v} guardado.` : `${q?.codigo}: traspaso borrado.`); }); }
   if(e.target.dataset.pres){ const id = e.target.dataset.pres, raw = e.target.value.trim(), v = raw === '' ? null : +raw;
     if(v != null && (isNaN(v) || v < 0)){ toast('Monto inválido.'); e.target.value = U[id]?.presupuesto ?? ''; return; }
-    sb.rpc('guardar_presupuestos', {p_items:[{id, monto:v}]}).then(({error}) => { if(error){ toast(errMsg(error)); return; } [U[id], ULall.find(x => x.id === id)].forEach(x => { if(x) x.presupuesto = v; }); toast(`${U[id]?.nombre}: ${v == null ? 'sin límite de presupuesto' : 'presupuesto ' + fBs(v) + ' al mes'}.`); }); }
+    sb.rpc('guardar_presupuestos', {p_items:[{id, monto:v}]}).then(({error}) => { if(error){ toast(errMsg(error)); return; } idsArea(U[id]).forEach(i => [U[i], ULall.find(x => x.id === i)].forEach(x => { if(x) x.presupuesto = v; })); toast(`${U[id]?.nombre}: ${v == null ? 'sin límite de presupuesto' : 'presupuesto ' + fBs(v) + ' al mes'}.`); }); }
   if(e.target.id === 'filePres' && e.target.files[0]){ leerPresupuestos(e.target.files[0]); e.target.value = ''; }
   if(e.target.dataset.cat){ cambiarCategoria(e.target.dataset.cat, e.target.value, e.target); }
   if(e.target.dataset.precio){ const cod = e.target.dataset.precio, raw = e.target.value.trim(), v = +raw;
@@ -1353,6 +1358,7 @@ function vSolicitar(){
   const g = G[u.grupo_id];
   const pendiente = pedidos.find(p => p.unidad_id === u.id && p.estado === 'Enviada');
   h += `<div class="unidad-box" data-g="${esc(u.grupo_id)}"><b>${esc(u.nombre)}</b><span class="sub" style="margin:0">${esc(u.tipo)}${u.muelle ? ' · ' + esc(u.muelle) : ''} · la confirma <strong>${esc(g?.aprobador || 'Logística CEDIS')}</strong></span></div>`;
+  { const gem = gemelos(u); if(gem.length > 1) h += `<div class="area-alm"><span>Pedir para:</span>${gem.map(x => `<button type="button" class="btn btn-sm ${x.id === u.id ? 'btn-primary' : ''}" data-area-alm="${esc(x.id)}" aria-pressed="${x.id === u.id}">🏬 ${esc(almNom(x.almacen || 'SCZ'))}</button>`).join('')}<span class="sub" style="margin:0">El presupuesto del área es uno solo para ambos almacenes.</span></div>`; }
   if(esApertura) h += `<div class="notice apertura"><strong>Solicitud de APERTURA.</strong> Se puede enviar en cualquier fecha, la supervisora la ve primero y la sala igual puede enviar su pedido mensual. <button class="btn btn-sm" id="btnQuitarApertura">Es un pedido normal</button></div>`;
   else if(puedeKit(u)) h += `<div class="notice info kit-box"><span>${salaNueva(u) ? '<strong>Sala nueva.</strong> Para la primera dotación use el kit de apertura: ' : 'Si es la apertura de esta sala, puede cargar el '}${plural(KIT.length, 'insumo estándar', 'insumos estándar')}.</span><button class="btn btn-sm btn-primary" id="btnKit">Cargar kit de apertura</button></div>`;
   if(editandoId){ const pe = pedidos.find(x => x.id === editandoId); if(!pe || pe.unidad_id !== u.id) editandoId = null; else h += `<div class="notice edit-box"><span>✏️ Editando la solicitud <strong>${esc(pe.codigo)}</strong>. Los cambios reemplazan lo que envió.</span><button class="btn btn-sm" id="btnCancelEdit">Cancelar edición</button></div>`; }
@@ -1389,7 +1395,7 @@ const precioSel = cod => { const v = (P_ALM[unidadSel ? almDeU(unidadSel) : almC
 const celBs = v => v == null ? '<span class="sub">sin precio</span>' : fBs(v);
 // ---------- presupuesto mensual por sala (Bs, sin aperturas, no se acumula) ----------
 const EST_PRES = ['Enviada','Confirmada','Aprobada','Entregada'];
-const usadoCiclo = (uid, c, excl) => pedAll.filter(p => p.unidad_id === uid && p.tipo !== 'Apertura' && EST_PRES.includes(p.estado) && p.id !== excl && cicloP(p) === c).reduce((a, p) => a + valorPedido(p, p.estado === 'Entregada').total, 0);
+const usadoCiclo = (uid, c, excl) => { const ids = idsArea(U[uid]); return pedAll.filter(p => ids.includes(p.unidad_id) && p.tipo !== 'Apertura' && EST_PRES.includes(p.estado) && p.id !== excl && cicloP(p) === c).reduce((a, p) => a + valorPedido(p, p.estado === 'Entregada').total, 0); };
 function estadoPres(){
   const u = unidadSel && U[unidadSel]; if(!u || u.presupuesto == null || esApertura) return null;
   const ed = editandoId && pedidos.find(x => x.id === editandoId), c = ed ? cicloP(ed) : cicloActivo();
@@ -1403,7 +1409,7 @@ function pintaPres(){
   const pct = e.pres ? Math.min(100, (e.usado + e.este) / e.pres * 100) : 100, cls = e.excede ? 'mal' : pct >= 85 ? 'alerta' : 'bien';
   box.innerHTML = `<div class="pres ${cls}"><div class="pres-n"><span>Presupuesto ${esc(nombreCiclo(e.c))}: <strong>${fBs(e.pres)}</strong></span>${e.usado ? `<span>Ya usado: <strong>${fBs(e.usado)}</strong></span>` : ''}<span>Esta solicitud: <strong>${fBs(e.este)}</strong></span><span>${e.excede ? `Se pasa por <strong>${fBs(-e.resta)}</strong>` : `Le queda: <strong>${fBs(e.resta)}</strong>`}</span></div>
     <div class="pres-bar"><i style="width:${e.pres ? Math.min(100, e.usado / e.pres * 100) : 0}%" class="u"></i><i style="width:${e.pres ? Math.max(0, Math.min(100, e.este / e.pres * 100, 100 - e.usado / e.pres * 100)) : 0}%" class="e"></i></div>
-    ${e.excede ? '<p class="sub" style="margin:0"><strong>No puede enviar la solicitud:</strong> supera el presupuesto mensual de la sala. Reduzca cantidades o quite insumos.</p>' : ''}</div>`;
+    ${e.excede ? '<p class="sub" style="margin:0"><strong>No puede enviar la solicitud:</strong> supera el presupuesto mensual ${U[unidadSel]?.tipo === 'Sucursal' ? 'de la sala' : 'del área'}. Reduzca cantidades o quite insumos.</p>' : ''}</div>`;
   if(b) b.disabled = e.excede;
 }
 function pintaBorrador(){
@@ -1471,6 +1477,7 @@ document.addEventListener('click', async e => {
   const nu = t.closest('[data-nueva-unidad]'); if(nu){ abrirNuevaUnidad(nu.dataset.nuevaUnidad); return; }
   if(t.id === 'segVerTodas'){ segTodas = true; render(); }
   if(t.dataset.cfgSave) guardarAprobador(t.dataset.cfgSave, t);
+  if(t.dataset.areaAlm && t.dataset.areaAlm !== unidadSel){ unidadSel = t.dataset.areaAlm; render(); toast(`Pidiendo para ${almNom(U[unidadSel]?.almacen || 'SCZ')}: la aprueba ${G[U[unidadSel]?.grupo_id]?.aprobador || 'Logística'}.`); }
   if(t.id === 'btnCopiarLink') copiarLink();
 });
 // editar una solicitud mientras sigue 'Enviada' (antes de que la supervisora la confirme)
