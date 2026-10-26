@@ -1016,13 +1016,16 @@ let kitEd = null;
 function vKit(){
   if(!kitEd) kitEd = KIT.map(k => ({...k}));
   const cambios = JSON.stringify(kitEd) !== JSON.stringify(KIT);
+  const al = almCosto(), PA = P_ALM[al] || {}, pu = c => PA[c] != null && !isNaN(+PA[c]) ? +PA[c] : null;
+  const tot = kitEd.reduce((a, k) => a + (pu(k.codigo) || 0) * (+k.cantidad || 0), 0), sinP = kitEd.filter(k => pu(k.codigo) == null).length;
   return `<section class="panel${plegCls('kit')}" id="secKit"><div class="panel-head"><div><h2>Kit de apertura ${plegBtn('kit')}</h2><p class="sub">Insumos que se cargan con un botón cuando abre una sala nueva (${plural(kitEd.length, 'insumo', 'insumos')}). La sala puede ajustarlo antes de enviar.</p></div>
     <div class="row">${cambios ? '<button class="btn" id="btnKitDescartar">Descartar cambios</button>' : ''}<button class="btn btn-primary" id="btnKitGuardar" ${cambios ? '' : 'disabled'}>Guardar kit</button></div></div>
     <div class="search" style="max-width:520px"><input id="kitBuscar" placeholder="Agregar insumo al kit: busque por código o nombre…" autocomplete="off"><div class="results" id="kitRes" hidden></div></div>
-    <div class="tbl-wrap"><table><thead><tr><th>Código</th><th>Insumo</th><th class="num">U.M.</th><th class="num">Cantidad</th><th class="num">Quitar</th></tr></thead><tbody>` +
+    <div class="tbl-wrap"><table><thead><tr><th>Código</th><th>Insumo</th><th class="num">U.M.</th><th class="num">Cantidad</th><th class="num">Costo unit.${multiAlm() ? ' (' + esc(almNom(al)) + ')' : ''}</th><th class="num">Subtotal</th><th class="num">Quitar</th></tr></thead><tbody>` +
     (kitEd.length ? kitEd.map((k,i) => { const m = M[k.codigo] || {}; return `<tr class="${matActivo(m) ? '' : 'cerrada'}"><td class="code">${esc(k.codigo)}</td><td>${esc(m.descripcion || '¿?')}${matActivo(m) ? '' : ' <span class="chip alerta">material eliminado</span>'}</td><td class="num">${esc(m.unidad || '')}</td>
-      <td class="num"><input type="number" min="1" class="qty" data-kq="${i}" value="${esc(k.cantidad)}" aria-label="Cantidad de ${esc(m.descripcion || k.codigo)}"></td><td class="num"><button class="btn btn-sm btn-danger" data-kx="${i}">Quitar</button></td></tr>`; }).join('')
-      : '<tr><td colspan="5" class="empty">El kit está vacío. Agregue insumos con el buscador.</td></tr>') + '</tbody></table></div></section>';
+      <td class="num"><input type="number" min="1" class="qty" data-kq="${i}" value="${esc(k.cantidad)}" aria-label="Cantidad de ${esc(m.descripcion || k.codigo)}"></td><td class="num">${celBs(pu(k.codigo))}</td><td class="num">${pu(k.codigo) == null ? '–' : fBs(pu(k.codigo) * (+k.cantidad || 0))}</td><td class="num"><button class="btn btn-sm btn-danger" data-kx="${i}">Quitar</button></td></tr>`; }).join('')
+      + `<tr class="tot"><td></td><td><strong>Costo total del kit</strong>${sinP ? ` <span class="sub">(${plural(sinP, 'insumo sin costo', 'insumos sin costo')}${multiAlm() ? ' en ' + esc(almNom(al)) : ''})</span>` : ''}</td><td></td><td></td><td></td><td class="num"><strong>${fBs(tot)}</strong></td><td></td></tr>`
+      : '<tr><td colspan="7" class="empty">El kit está vacío. Agregue insumos con el buscador.</td></tr>') + '</tbody></table></div>' + (multiAlm() && almVista() === 'TODOS' ? `<p class="sub" style="margin:0">Costos de ${esc(almNom(al))}. Para ver los de otro almacén, elíjalo arriba en el selector de almacén.</p>` : '') + '</section>';
 }
 function buscarKit(q){
   const box = $('kitRes'); q = normTxt(q).trim(); if(!q){ box.hidden = true; return; }
