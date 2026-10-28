@@ -715,8 +715,14 @@ function datosPrep(){
   const m = {}; l.forEach(p => { const mu = U[p.unidad_id]?.muelle || 'SIN'; p.items.forEach(i => { const x = m[i.codigo] ||= {codigo:i.codigo, descripcion:i.descripcion, unidad:i.unidad, por:{}, total:0, unidades:new Set()}; const c = +i.cantidad || 0; x.por[mu] = (x.por[mu]||0) + c; x.total += c; x.unidades.add(p.unidad_id); }); });
   return {l, filas:Object.values(m).sort((a,b) => a.descripcion.localeCompare(b.descripcion,'es'))};
 }
+// orden de la tabla de preparación: clic en el título ordena ascendente, otro clic descendente, otro vuelve al orden por insumo
+let ordPrep = {};
+const valPrep = (f, k) => k === 'cod' ? (+normCod(f.codigo) || normTxt(f.codigo)) : k === 'desc' ? normTxt(f.descripcion) : k === 'um' ? normTxt(f.unidad || '') : k === 'total' ? f.total : k === 'salas' ? f.unidades.size : k === 'valor' ? (P[f.codigo] != null ? P[f.codigo] * f.total : null) : k.startsWith('mu:') ? (f.por[k.slice(3)] || 0) : null;
+const thPrep = (k, txt, cls = '', tit = '') => `<th class="th-ord ${cls}" data-ordprep="${k}" title="${tit || 'Ordenar'}">${txt}<span class="flecha${ordPrep.k === k ? ' on' : ''}">${ordPrep.k === k ? (ordPrep.dir === 1 ? '▲' : '▼') : '↕'}</span></th>`;
+document.addEventListener('click', e => { const th = e.target.closest?.('[data-ordprep]'); if(!th) return; const k = th.dataset.ordprep; ordPrep = ordPrep.k === k ? (ordPrep.dir === 1 ? {k, dir:-1} : {}) : {k, dir:1}; render(); });
 function vPreparacion(){
-  const {l, filas} = datosPrep(), MUELLES = muellesAlm(almVista()) ? MUELLES_ALL : [];
+  const {l, filas:f0} = datosPrep(), MUELLES = muellesAlm(almVista()) ? MUELLES_ALL : [];
+  const filas = !ordPrep.k ? f0 : f0.slice().sort((a, b) => { const x = valPrep(a, ordPrep.k), y = valPrep(b, ordPrep.k); return (x == null && y == null ? 0 : x == null ? 1 : y == null ? -1 : (x < y ? -1 : x > y ? 1 : 0) * ordPrep.dir) || normTxt(a.descripcion).localeCompare(normTxt(b.descripcion)); });
   const tot = Object.fromEntries(MUELLES.map(mu => [mu, filas.reduce((a,f) => a + (f.por[mu]||0), 0)]));
   const c = fPrepCiclo, enAlc = p => fPrepAlc === 'todo' || U[p.unidad_id]?.tipo === 'Sucursal';
   const aprob = pedidos.filter(p => enMesPrep(p) && enAlc(p)), pend = pedidos.filter(p => p.estado === 'Enviada' && enAlc(p));
@@ -728,7 +734,7 @@ function vPreparacion(){
     <div class="row right"><button class="btn btn-primary btn-lg" id="btnReporte" ${aprob.length ? '' : 'disabled'}>Generar reporte de dotación (Excel)</button></div></section>
   <section class="panel"><div class="panel-head"><div><h2>Preparación${MUELLES.length ? ' por muelle' : ''}</h2><p class="sub">Ciclo ${esc(nombreCiclo(c))} (insumos para usar en ${esc(nombreCiclo(c).split(' ')[0].toLowerCase())}), aprobado y aún no entregado: ${plural(l.length, 'solicitud', 'solicitudes')}.</p></div>
     <div class="row">${selGrupo('fPrep', fPrep)}</div></div>
-    <div class="tbl-wrap"><table><thead><tr><th>Código</th><th>Insumo</th><th class="num">U.M.</th><th class="num col-total">Total</th>${MUELLES.map(m => `<th class="num">${m === 'SIN' ? 'Sin muelle' : m}</th>`).join('')}<th class="num" title="Cuántas salas o áreas pidieron este insumo">N° salas</th>${verPrecios() ? '<th class="num">Valor</th>' : ''}</tr></thead><tbody>` +
+    <div class="tbl-wrap"><table><thead><tr>${thPrep('cod','Código')}${thPrep('desc','Insumo')}${thPrep('um','U.M.','num')}${thPrep('total','Total','num col-total')}${MUELLES.map(m => thPrep('mu:' + m, m === 'SIN' ? 'Sin muelle' : m, 'num')).join('')}${thPrep('salas','N° salas','num','Cuántas salas o áreas pidieron este insumo · clic para ordenar')}${verPrecios() ? thPrep('valor','Valor','num') : ''}</tr></thead><tbody>` +
     (filas.length ? filas.map(f => `<tr><td class="code">${esc(f.codigo)}</td><td>${esc(f.descripcion)}</td><td class="num">${esc(f.unidad)}</td><td class="num col-total"><strong>${f.total}</strong></td>${MUELLES.map(m => f.por[m] ? `<td class="num">${f.por[m]}</td>` : '<td class="num zero">–</td>').join('')}<td class="num">${f.unidades.size}</td>${verPrecios() ? `<td class="num" style="white-space:nowrap">${P[f.codigo] != null ? fBs(P[f.codigo] * f.total) : '<span class="sub">sin precio</span>'}</td>` : ''}</tr>`).join('') +
       `<tr class="tot"><td></td><td>Total</td><td></td><td class="num col-total">${filas.reduce((a,f) => a + f.total, 0)}</td>${MUELLES.map(m => `<td class="num">${tot[m] || '–'}</td>`).join('')}<td></td>${verPrecios() ? `<td class="num" style="white-space:nowrap">${fBs(filas.reduce((a,f) => a + (P[f.codigo] || 0) * f.total, 0))}</td>` : ''}</tr>`
       : '<tr><td colspan="11" class="empty">Nada pendiente de preparar.</td></tr>') + '</tbody></table></div></section>';
