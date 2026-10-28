@@ -118,6 +118,7 @@ tr.tot td{font-weight:700;background:var(--surface-2)}
 .prov-in{width:130px;padding:6px 8px;font-size:13px;text-transform:uppercase}
 table.compra tbody td{background:var(--banda,transparent);color:#14231f;border-bottom-color:rgba(0,0,0,.06)}table.compra tbody td.code{color:#0b5d8a}table.compra td.prov{font-size:12.5px;font-weight:600}
 table.compra th.th-periodo{background:#fff200;color:#1f3864}
+table.compra tfoot td{background:#fff8c4;color:#14231f;border-top:2px solid #1f3864;font-size:14px;padding-top:10px;padding-bottom:10px}
 table.inv .neg{color:#c62828}table.inv tr.inv-falta td{background:rgba(229,57,53,.05)}
 .roles td{vertical-align:top}.rol-n{white-space:nowrap}.rol-ico{margin-right:6px}
 .rol-perm{margin:0;padding-left:16px;font-size:13px;line-height:1.45}
@@ -2707,43 +2708,53 @@ function datosInventario(){
 // orden del formato de compra: por proveedor (sin proveedor al final) y luego por insumo
 const ordenCompra = (a, b) => (a.proveedor === 'SIN PROVEEDOR') - (b.proveedor === 'SIN PROVEEDOR') || a.proveedor.localeCompare(b.proveedor, 'es') || a.descripcion.localeCompare(b.descripcion, 'es');
 function bandasProv(l){ const idx = {}; let n = 0; l.forEach(r => { if(!(r.proveedor in idx)) idx[r.proveedor] = n++ % BANDAS.length; }); return idx; }
+// filtro de proveedor y búsqueda: se aplica a la tabla, a los indicadores, al total y al Excel de compra
+const invFiltrados = todos => { const q = normTxt(fInvQ).trim().split(/\s+/).filter(Boolean);
+  return todos.filter(r => (fInvProv === 'TODOS' || r.proveedor === fInvProv) && (!q.length || q.every(w => normTxt(r.descripcion + ' ' + r.codigo).includes(w)))); };
+const valCompra = r => r.falta * (r.precio || 0);
 function vInventario(){
-  const todos = datosInventario(), q = normTxt(fInvQ).trim().split(/\s+/).filter(Boolean);
+  const todos = datosInventario(), base = invFiltrados(todos), filtro = fInvProv !== 'TODOS' || !!fInvQ.trim();
   const provs = [...new Set(todos.map(r => r.proveedor))].sort((a, b) => (a === 'SIN PROVEEDOR') - (b === 'SIN PROVEEDOR') || a.localeCompare(b, 'es'));
-  const l = todos.filter(r => (fInvVer === 'todos' || (fInvVer === 'falta' ? r.falta > 0 : r.nec > 0)) && (fInvProv === 'TODOS' || r.proveedor === fInvProv) && (!q.length || q.every(w => normTxt(r.descripcion + ' ' + r.codigo + ' ' + r.proveedor).includes(w)))).sort(ordenCompra);
-  const conNec = todos.filter(r => r.nec > 0), faltan = todos.filter(r => r.falta > 0), valor = faltan.reduce((a, r) => a + r.falta * (r.precio || 0), 0), sinP = faltan.filter(r => r.precio == null).length;
+  const l = base.filter(r => fInvVer === 'todos' || (fInvVer === 'falta' ? r.falta > 0 : r.nec > 0)).sort(ordenCompra);
+  const conNec = base.filter(r => r.nec > 0), faltan = base.filter(r => r.falta > 0), valor = faltan.reduce((a, r) => a + valCompra(r), 0), sinP = faltan.filter(r => r.precio == null).length;
+  const vp = verPrecios(), totL = l.reduce((a, r) => a + valCompra(r), 0), totFalta = l.reduce((a, r) => a + r.falta, 0);
   const fq = n => (+n).toLocaleString('es-BO', {maximumFractionDigits:2}), band = bandasProv(l); let prev = null, alt = 0;
   const cuando = INV_INFO ? `Inventario cargado el ${fFH(new Date(INV_INFO.ts).getTime())}${INV_INFO.archivo ? ' · ' + esc(INV_INFO.archivo) : ''}` : 'Todavía no se cargó el inventario';
   const sinProv = conNec.filter(r => r.proveedor === 'SIN PROVEEDOR').length;
   return `<section class="panel"><div class="panel-head"><div><h2>Necesidad de compra${multiAlm() ? ' · ' + esc(almNom(almCosto())) : ''}</h2><p class="sub">${cuando}. Total del período = lo confirmado que falta entregar${fInvPend ? ' + lo que está por confirmar' : ''}; a comprar = total del período − stock.</p></div>
     <div class="row">${almVista() === 'TODOS' ? selAlmCosto() : ''}${editaAlm(almCosto()) ? '<button class="btn btn-sm btn-primary" id="btnInvSubir">⬆ Cargar inventario</button><input type="file" id="fileInv" accept=".xlsx,.xls,.csv" hidden>' : ''}<button class="btn btn-sm" id="btnInvExcel" ${faltan.length ? '' : 'disabled'}>⬇ Excel de compra</button></div></div>
     <div class="inv-res"><div class="kpi ${faltan.length ? 'mal' : 'bien'}"><b>${faltan.length}</b><span>de ${conNec.length} insumos solicitados<br>no alcanzan con el stock</span></div>
-      ${verPrecios() ? `<div class="kpi"><b>${fBs(valor)}</b><span>valor a comprar${sinP ? `<br>${plural(sinP, 'insumo sin costo', 'insumos sin costo')}` : ''}</span></div>` : ''}
+      ${verPrecios() ? `<div class="kpi"><b>${fBs(valor)}</b><span>valor a comprar${filtro ? ' (filtrado)' : ''}${sinP ? `<br>${plural(sinP, 'insumo sin costo', 'insumos sin costo')}` : ''}</span></div>` : ''}
       <div class="kpi bien"><b>${conNec.length - faltan.length}</b><span>insumos cubiertos<br>en su totalidad</span></div></div>
     ${sinProv && rol.admin ? `<p class="sub" style="margin:0"><span class="chip alerta">${plural(sinProv, 'insumo sin proveedor', 'insumos sin proveedor')}</span> Asígnelo en la pestaña Materiales, columna Proveedor.</p>` : ''}
-    <div class="row"><input id="fInvQ" placeholder="Buscar insumo, código o proveedor…" value="${esc(fInvQ)}" style="flex:1;min-width:200px" autocomplete="off">
+    <div class="row"><input id="fInvQ" placeholder="Buscar insumo o código…" value="${esc(fInvQ)}" style="flex:1;min-width:200px" autocomplete="off">
       <select id="fInvProvSel" style="width:auto"><option value="TODOS">Todos los proveedores</option>${provs.map(v => `<option value="${esc(v)}" ${fInvProv === v ? 'selected' : ''}>${esc(v === 'SIN PROVEEDOR' ? 'Sin proveedor' : v)}</option>`).join('')}</select>
       <select id="fInvVer" style="width:auto"><option value="falta" ${fInvVer === 'falta' ? 'selected' : ''}>Solo lo que falta comprar</option><option value="nec" ${fInvVer === 'nec' ? 'selected' : ''}>Todo lo solicitado</option><option value="todos" ${fInvVer === 'todos' ? 'selected' : ''}>Todos los materiales de la app</option></select>
       <label class="recordar" style="margin:0"><input type="checkbox" id="fInvPend" ${fInvPend ? 'checked' : ''}> Incluir solicitudes por confirmar</label></div>
-    <div class="tbl-wrap"><table class="inv compra"><thead><tr><th>Insumo</th><th>Proveedor</th><th>Cod. int.</th><th class="num">U.M.</th>${TIPOS_INV.map(t => `<th class="num">${t[1]}</th>`).join('')}<th class="num th-periodo">Total período</th><th class="num">Stock</th><th class="num">A comprar</th></tr></thead><tbody>` +
+    <div class="tbl-wrap"><table class="inv compra"><thead><tr><th>Insumo</th><th>Proveedor</th><th>Cod. int.</th><th class="num">U.M.</th>${TIPOS_INV.map(t => `<th class="num">${t[1]}</th>`).join('')}<th class="num th-periodo">Total período</th><th class="num">Stock</th><th class="num">A comprar</th>${vp ? '<th class="num">Costo unit.</th><th class="num">Valor a comprar</th>' : ''}</tr></thead><tbody>` +
     (l.length ? l.map(r => { if(r.proveedor !== prev){ alt = 0; prev = r.proveedor; } else alt = 1 - alt; const bg = BANDAS[band[r.proveedor]][alt];
       return `<tr style="--banda:${bg}"><td>${esc(r.descripcion)}</td><td class="prov">${esc(r.proveedor === 'SIN PROVEEDOR' ? '—' : r.proveedor)}</td><td class="code">${esc(r.codigo)}</td><td class="num">${esc(r.unidad)}</td>
-      ${TIPOS_INV.map(t => `<td class="num">${fq(r.tipos[t[0]] || 0)}</td>`).join('')}<td class="num"><strong>${fq(r.nec)}</strong></td><td class="num">${fq(r.stock)}</td><td class="num">${r.falta ? `<strong class="neg">${fq(r.falta)}</strong>` : '0'}${r.de ? `<div class="sub" style="margin:0">incluye ${r.de.map(x => { const [c, n] = x.split(':'); return `${fq(n)} del ${esc(c)}`; }).join(', ')}</div>` : ''}${r.va ? `<div class="sub" style="margin:0">lo que falta se compra como ${esc(r.va)}</div>` : ''}</td></tr>`; }).join('')
-      : `<tr><td colspan="10" class="empty">${fInvVer === 'falta' ? 'Con el stock actual alcanza para todo lo solicitado. 🎉' : 'No hay insumos para mostrar.'}</td></tr>`) + '</tbody></table></div></section>';
+      ${TIPOS_INV.map(t => `<td class="num">${fq(r.tipos[t[0]] || 0)}</td>`).join('')}<td class="num"><strong>${fq(r.nec)}</strong></td><td class="num">${fq(r.stock)}</td><td class="num">${r.falta ? `<strong class="neg">${fq(r.falta)}</strong>` : '0'}${r.de ? `<div class="sub" style="margin:0">incluye ${r.de.map(x => { const [c, n] = x.split(':'); return `${fq(n)} del ${esc(c)}`; }).join(', ')}</div>` : ''}${r.va ? `<div class="sub" style="margin:0">lo que falta se compra como ${esc(r.va)}</div>` : ''}</td>${vp ? `<td class="num">${r.precio != null ? fBs(r.precio) : '<span class="sub">sin costo</span>'}</td><td class="num">${r.falta ? `<strong>${r.precio != null ? fBs(valCompra(r)) : '–'}</strong>` : '–'}</td>` : ''}</tr>`; }).join('')
+      : `<tr><td colspan="12" class="empty">${fInvVer === 'falta' ? 'Con el stock actual alcanza para todo lo solicitado. 🎉' : 'No hay insumos para mostrar.'}</td></tr>`) + '</tbody>' +
+    (l.length ? `<tfoot><tr class="inv-total"><td colspan="${4 + TIPOS_INV.length + 2}"><strong>Total a pedir${filtro ? ' (según el filtro)' : ''}</strong> · ${plural(l.filter(r => r.falta > 0).length, 'insumo', 'insumos')}</td><td class="num"><strong>${fq(totFalta)}</strong></td>${vp ? `<td></td><td class="num"><strong>${fBs(totL)}</strong></td>` : ''}</tr></tfoot>` : '') + '</table></div></section>';
 }
 function excelCompra(){
-  const l = datosInventario().filter(r => r.falta > 0 && (fInvProv === 'TODOS' || r.proveedor === fInvProv)).sort(ordenCompra), band = bandasProv(l);
+  const l = invFiltrados(datosInventario()).filter(r => r.falta > 0).sort(ordenCompra), band = bandasProv(l), vp = verPrecios();
   const W = XL.libro(), h = W.hoja('Necesidad de compra'), borde = {bt:'thin', bb:'thin', bl:'thin', br:'thin'};
   const cab = {b:true, sz:10, color:'FFFFFFFF', fill:'FF4F81BD', h:'left', v:'center', ...borde};
-  const cols = ['Insumo','PROVEEDOR','COD INT','U.M.','Sucursales','CEDIS','Oficina','Total Período','Stock','A COMPRAR'];
-  cols.forEach((t, c) => h.set(0, c, t, c === 7 ? {...cab, fill:'FFFFFF00', color:'FF1F3864'} : cab)); [46,16,10,7,11,9,9,13,9,12].forEach((w, c) => h.anchos[c] = w); h.altos[0] = 20;
+  const cols = ['Insumo','PROVEEDOR','COD INT','U.M.','Sucursales','CEDIS','Oficina','Total Período','Stock','A COMPRAR', ...(vp ? ['COSTO UNIT. Bs','VALOR A COMPRAR Bs'] : [])];
+  cols.forEach((t, c) => h.set(0, c, t, c === 7 ? {...cab, fill:'FFFFFF00', color:'FF1F3864'} : cab)); [46,16,10,7,11,9,9,13,9,12,13,16].forEach((w, c) => h.anchos[c] = w); h.altos[0] = 20;
   let prev = null, alt = 0;
   l.forEach((r, k) => { if(r.proveedor !== prev){ alt = 0; prev = r.proveedor; } else alt = 1 - alt; const fill = BANDAS[band[r.proveedor]][2 + alt], y = k + 1;
     const s = (hh, ex = {}) => ({sz:10, h:hh, v:'center', fill, ...borde, ...ex});
     h.set(y, 0, r.descripcion, s('left')); h.set(y, 1, r.proveedor === 'SIN PROVEEDOR' ? '' : r.proveedor, s('left')); h.set(y, 2, r.codigo, s('left')); h.set(y, 3, r.unidad, s('left'));
     TIPOS_INV.forEach((t, c) => h.set(y, 4 + c, +(r.tipos[t[0]] || 0), s('right')));
-    h.set(y, 7, null, s('right'), `SUM(E${y + 1}:G${y + 1})`); h.set(y, 8, +r.stock, s('right')); h.set(y, 9, null, s('right', {b:true}), `MAX(0,H${y + 1}-I${y + 1})`); });
-  h.freeze = 1; h.filtro = `A1:J${l.length + 1}`;
+    h.set(y, 7, null, s('right'), `SUM(E${y + 1}:G${y + 1})`); h.set(y, 8, +r.stock, s('right')); h.set(y, 9, null, s('right', {b:true}), `MAX(0,H${y + 1}-I${y + 1})`);
+    if(vp){ h.set(y, 10, r.precio != null ? +(+r.precio).toFixed(4) : null, s('right', {fmt:'#,##0.00'})); h.set(y, 11, null, s('right', {b:true, fmt:'#,##0.00'}), `J${y + 1}*K${y + 1}`); } });
+  if(vp && l.length){ const y = l.length + 1, t = {sz:10, b:true, v:'center', fill:'FFFFFF00', ...borde};
+    h.set(y, 0, 'TOTAL A PEDIR', {...t, h:'left'}); for(let c = 1; c < 11; c++) h.set(y, c, c === 9 ? null : '', {...t, h:'right'}, c === 9 ? `SUM(J2:J${y})` : undefined);
+    h.set(y, 11, null, {...t, h:'right', fmt:'#,##0.00'}, `SUM(L2:L${y})`); }
+  h.freeze = 1; h.filtro = `A1:${vp ? 'L' : 'J'}${l.length + 1}`;
   descargar(W.generar(), `Necesidad_compra_insumos_${hoyISO()}.xlsx`);
 }
 // carga de inventario: Excel con columnas de código y stock (y costo opcional), o el reporte del sistema
