@@ -131,6 +131,12 @@ table.inv .neg{color:#c62828}table.inv tr.inv-falta td{background:rgba(229,57,53
 .ind-grid.k4{grid-template-columns:repeat(auto-fit,minmax(200px,1fr))}.ind.alerta .ind-v{color:#c62828}
 .graf-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(340px,1fr));gap:12px;margin-top:4px}
 .graf{border:1px solid var(--line);border-radius:14px;padding:14px 16px;background:var(--surface)}
+.graf-ancho{grid-column:1/-1}.linea-gasto{width:100%;height:auto;display:block;overflow:visible}
+.lg-eje{stroke:var(--line);stroke-width:1}.lg-prom{stroke:#8a97a8;stroke-width:1.2;stroke-dasharray:5 4}.lg-prom-t{font-size:11px;fill:var(--muted,#6b7a8c)}
+.lg-area{fill:#1565c0;opacity:.08}.lg-linea{fill:none;stroke:#1565c0;stroke-width:2.6;stroke-linecap:round;stroke-linejoin:round}
+.lg-pt{fill:#1565c0;stroke:#fff;stroke-width:2}.lg-pt.curso{fill:#fff;stroke:#1565c0;stroke-width:2.4}
+.lg-v{font-size:11.5px;font-weight:700;fill:var(--ink,#1b2a3a)}.lg-m{font-size:11px;fill:var(--muted,#6b7a8c)}
+@media(max-width:600px){.lg-v{display:none}.lg-v.fin{display:inline;font-size:28px}.lg-m{font-size:24px}.lg-m.alt{display:none}.lg-prom-t{font-size:24px}.lg-linea{stroke-width:5}.lg-pt{r:9}}
 .graf h3{margin:0;font-size:15px;display:flex;gap:8px;align-items:center}.graf>.sub{margin:2px 0 10px;font-size:12px}
 .cols{display:flex;gap:10px;align-items:flex-end;padding-top:4px;border-bottom:1px solid var(--line)}
 .cols .col{flex:1;display:flex;flex-direction:column;align-items:center;gap:4px;min-width:0}
@@ -863,6 +869,8 @@ function vCobertura(){
   const maxV = Math.max(1, ...consC.map(x => x.v)), almsCons = ALM_COL.filter(([a]) => consC.some(x => x.por[a]));
   const colCons = consC.map((x, i) => `<div class="col${i === idx ? ' on' : ''}"><span class="col-v"${almsCons.length > 1 && ALM_COL.some(([a]) => x.por[a] && x.por[a] / maxV * H < 15) ? ' style="padding-bottom:12px"' : ''}>${x.v && i === idx ? 'Bs ' + Math.round(x.v).toLocaleString('es-BO') : ''}</span><div class="stack" style="height:${H}px">${x.v ? ALM_COL.map(([a, nom, cls]) => x.por[a] ? (() => { const hh = Math.max(2, x.por[a] / maxV * H), pc = Math.round(x.por[a] / x.v * 100); return `<span class="seg ${cls}" style="height:${hh}px" data-tip="${esc(nombreCiclo(x.c))} · ${nom}: ${fBs(x.por[a])} (${pc} %)${almsCons.length > 1 ? ` · total ${fBs(x.v)}` : ''}">${almsCons.length > 1 ? `<span class="seg-pct${hh < 15 ? ' fuera' : ''}">${pc}%</span>` : ''}</span>`; })() : '').join('') : '<span class="seg vacio" style="height:2px" data-tip="Sin consumo"></span>'}</div><span class="col-l">${esc(mesCorto(x.c))}</span></div>`).join('');
   const leyCons = almsCons.length > 1 ? `<div class="leyenda-g">${almsCons.map(([a, nom, cls]) => `<span><i class="${cls}"></i>${nom}</span>`).join('')}</div>` : '';
+  // D2) gasto mensual en Bs para abastecer a las sucursales (línea, últimos 12 ciclos con datos, incluye aperturas)
+  const graficoGasto = conP ? lineaGastoSuc(cA, fCobGr) : '';
   // E) salas fuera de lo normal: consumo del ciclo vs su promedio de los 3 anteriores
   const cons = conP ? us.filter(u => vigenteEn(u, c)).map(u => { const v = valorSalaCiclo(u.id, c, false), hist = [1, 2, 3].map(k => cicloMenos(c, k)).filter(cc => vigenteEn(u, cc)).map(cc => valorSalaCiclo(u.id, cc, false)).filter(x => x > 0), pr = prom(hist); return {u, v, pr, r: pr ? v / pr : null}; }).filter(x => x.v > 0 && x.pr) : [];
   const fuera = cons.filter(x => x.r >= 1.5 || x.r <= .5).sort((a, b) => Math.abs(Math.log(b.r)) - Math.abs(Math.log(a.r))).slice(0, 8), maxF = Math.max(1, ...fuera.map(x => Math.max(x.v, x.pr)));
@@ -894,6 +902,7 @@ function vCobertura(){
       <div class="graf"><h3>Cobertura por grupo · ${esc(nombreCiclo(c))}</h3><p class="sub">% de salas dotadas de cada aprobador.</p><div class="hbs">${barrasG}</div></div>
       <div class="graf"><h3>Días para confirmar por aprobador</h3><p class="sub">La línea punteada es la meta de 5 días; en rojo, quien la supera.</p><div class="hbs">${barrasAp}</div></div>
       ${conP ? `<div class="graf"><h3>Consumo por ciclo (Bs)</h3><p class="sub">Valor de lo aprobado y entregado, incluidas las aperturas.</p><div class="cols">${colCons}</div>${leyCons}</div>
+      ${graficoGasto}
       <div class="graf"><h3>Consumo por grupo · ${esc(nombreCiclo(c))}</h3><p class="sub">Valor en Bs de lo aprobado y entregado de cada grupo, y su % del total (${fBs(totC)}).</p><div class="hbs">${barrasBsG || '<p class="sub">Sin consumo en este ciclo.</p>'}</div></div>
       <div class="graf"><h3>Mayor consumo por sala o área · ${esc(nombreCiclo(c))}</h3><p class="sub">Las 10 que más consumieron en Bs, incluidas las aperturas.</p><div class="hbs">${barrasBsU || '<p class="sub">Sin consumo en este ciclo.</p>'}</div></div>
       <div class="graf"><h3>Salas fuera de lo normal · ${esc(nombreCiclo(c))}</h3><p class="sub">Consumo mensual del ciclo (sin aperturas) frente a su promedio de los 3 anteriores (marca negra). Rojo: 50 % o más arriba; amarillo: la mitad o menos.</p><div class="hbs">${barrasF || '<p class="sub">Ninguna sala pidió fuera de lo normal, o todavía no hay ciclos anteriores para comparar.</p>'}</div></div>` : ''}
@@ -916,6 +925,36 @@ function exportarCobertura(){
   });
   h.freeze = 1; h.titulos = ['1','1']; h.ajustarAncho = true;
   descargar(W.generar(), `Cobertura_Dotacion_${new Date().toISOString().slice(0,10)}.xlsx`);
+}
+
+// línea de gasto mensual (Bs) de todas las sucursales: lo aprobado y entregado de cada ciclo, incluidas las aperturas y las sucursales ya cerradas
+function lineaGastoSuc(cA, gr){
+  const ok = p => { const u = U[p.unidad_id]; return u && u.tipo === 'Sucursal' && (verTodoCob() || rol.grupos.includes(u.grupo_id)) && (gr === 'TODOS' || u.grupo_id === gr) && (p.estado === 'Confirmada' || p.estado === 'Aprobada' || p.estado === 'Entregada'); };
+  let serie = Array.from({length:12}, (_, k) => cicloMenos(cA, 11 - k)).map(c => { const l = delCicloTodos(c, ok); return {c, v:l.reduce((a, p) => a + valorPedido(p, p.estado === 'Entregada').total, 0), n:new Set(l.map(p => p.unidad_id)).size}; });
+  const i0 = serie.findIndex(x => x.v > 0); if(i0 < 0) return `<div class="graf graf-ancho"><h3>Gasto mensual en sucursales (Bs)</h3><p class="sub">Todavía no hay consumo valorizado de sucursales.</p></div>`;
+  serie = serie.slice(i0);
+  const W = 860, H = 230, pl = 14, pr = 14, pt = 30, pb = 34, n = serie.length, max = Math.max(...serie.map(x => x.v)) * 1.12 || 1;
+  const X = i => n === 1 ? W / 2 : pl + 30 + i * (W - pl - pr - 60) / (n - 1), Y = v => pt + (H - pt - pb) * (1 - v / max);
+  const pts = serie.map((x, i) => [X(i), Y(x.v)]);
+  // curva suave monótona (Fritsch-Carlson): no se pasa por encima ni por debajo de los puntos reales
+  const dx = [], m = [], t = []; for(let i = 0; i < n - 1; i++){ dx[i] = pts[i + 1][0] - pts[i][0]; m[i] = (pts[i + 1][1] - pts[i][1]) / dx[i]; }
+  for(let i = 0; i < n; i++) t[i] = !i ? (m[0] || 0) : i === n - 1 ? m[n - 2] : (m[i - 1] * m[i] <= 0 ? 0 : 3 * (dx[i - 1] + dx[i]) / ((2 * dx[i] + dx[i - 1]) / m[i - 1] + (dx[i] + 2 * dx[i - 1]) / m[i]));
+  const d = pts.map((q, i) => { if(!i) return `M${q[0].toFixed(1)},${q[1].toFixed(1)}`; const p1 = pts[i - 1], h = dx[i - 1] / 3;
+    return `C${(p1[0] + h).toFixed(1)},${(p1[1] + t[i - 1] * h).toFixed(1)} ${(q[0] - h).toFixed(1)},${(q[1] - t[i] * h).toFixed(1)} ${q[0].toFixed(1)},${q[1].toFixed(1)}`; }).join(' ');
+  const cerr = serie.filter(x => x.c !== cA), prom = cerr.length ? cerr.reduce((a, x) => a + x.v, 0) / cerr.length : 0, yP = Y(prom);
+  const k = v => v >= 1000 ? (v / 1000).toLocaleString('es-BO', {maximumFractionDigits:1}) + ' mil' : Math.round(v).toLocaleString('es-BO');
+  const et = c => { const t = nombreCiclo(c); return t.slice(0, 3) + ' ' + t.slice(-2); };
+  const ult = cerr[cerr.length - 1], ant = cerr[cerr.length - 2];
+  const svg = `<svg class="linea-gasto" viewBox="0 0 ${W} ${H}" role="img" aria-label="Gasto mensual en Bs para abastecer a las sucursales">
+    <line x1="${pl}" x2="${W - pr}" y1="${H - pb}" y2="${H - pb}" class="lg-eje"/>
+    ${prom ? `<line x1="${pl}" x2="${W - pr}" y1="${yP.toFixed(1)}" y2="${yP.toFixed(1)}" class="lg-prom"/><text x="${W - pr}" y="${(yP - 5).toFixed(1)}" text-anchor="end" class="lg-prom-t">Promedio Bs ${k(prom)}</text>` : ''}
+    <path d="${d} L${pts[n - 1][0].toFixed(1)},${H - pb} L${pts[0][0].toFixed(1)},${H - pb} Z" class="lg-area"/>
+    <path d="${d}" class="lg-linea"/>
+    ${serie.map((x, i) => `<g data-tip="${esc(nombreCiclo(x.c))}${x.c === cA ? ' (en curso)' : ''}: ${fBs(x.v)} · ${plural(x.n, 'sucursal', 'sucursales')}"><circle cx="${pts[i][0].toFixed(1)}" cy="${pts[i][1].toFixed(1)}" r="${x.c === cA ? 5 : 4.5}" class="lg-pt${x.c === cA ? ' curso' : ''}"/><circle cx="${pts[i][0].toFixed(1)}" cy="${pts[i][1].toFixed(1)}" r="14" fill="transparent"/>
+      <text x="${pts[i][0].toFixed(1)}" y="${(pts[i][1] - 11).toFixed(1)}" text-anchor="middle" class="lg-v${i === n - 1 ? ' fin' : ''}">${k(x.v)}</text><text x="${pts[i][0].toFixed(1)}" y="${H - pb + 18}" text-anchor="middle" class="lg-m${n > 6 && (n - 1 - i) % 2 ? ' alt' : ''}">${esc(et(x.c))}</text></g>`).join('')}
+  </svg>`;
+  const var_ = ant && ant.v ? (ult.v - ant.v) / ant.v * 100 : null;
+  return `<div class="graf graf-ancho"><h3>Gasto mensual en sucursales (Bs)</h3><p class="sub">Valor de lo aprobado y entregado para todas las sucursales en cada ciclo (mes de uso), incluidas las aperturas. La línea punteada es el promedio de los meses cerrados; el punto vacío es el ciclo en curso.${var_ != null ? ` ${esc(nombreCiclo(ult.c))}: ${fBs(ult.v)} (${var_ >= 0 ? '+' : ''}${Math.round(var_)} % frente a ${esc(nombreCiclo(ant.c).split(' ')[0].toLowerCase())}).` : ''}${serie[n - 1].c === cA ? ` ${esc(nombreCiclo(cA))} está en curso: ${fBs(serie[n - 1].v)} aprobados hasta hoy.` : ''}</p>${svg}</div>`;
 }
 
 // ---------- reporte de dotación en el formato del Excel "Dotacion Sucursales" ----------
