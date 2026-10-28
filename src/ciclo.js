@@ -124,6 +124,33 @@ const gruposCob = () => verTodoCob() ? GL : GL.filter(g => rol.grupos.includes(g
 const unidadesCob = (tipo, gr) => UL.filter(u => u.activa && (verTodoCob() || rol.grupos.includes(u.grupo_id)) && (!verTodoCob() || tipo === 'TODOS' || u.tipo === tipo) && (gr === 'TODOS' || u.grupo_id === gr));
 // ---------- indicadores de cobertura: % dotación, plazos y consumo por sala ----------
 let fIndCiclo = 4;
+// meses elegidos en Cobertura (selección múltiple); por defecto, el último mes cerrado
+let fCobMeses = null, msAbierto = false;
+const mesesDisp = () => { const cA = cicloActivo(), out = []; for(let c = Math.min(inicioDatos(), cA); c <= cA; c = cicloMenos(c, -1)) out.push(c); return out; };
+function mesesSel(){ const d = mesesDisp(); fCobMeses = (fCobMeses || [cicloMenos(cicloActivo(), 1)]).filter(c => d.includes(c)); if(!fCobMeses.length) fCobMeses = [d[Math.max(0, d.length - 2)]]; return fCobMeses.slice().sort((a, b) => a - b); }
+const nomMeses = S => S.length === 1 ? nombreCiclo(S[0]) : S.length === 2 ? `${mesCorto(S[0])} y ${mesCorto(S[1])} ${String(S[1]).slice(0, 4)}` : `${S.length} meses (${mesCorto(S[0])} ${String(S[0]).slice(2, 4)} – ${mesCorto(S[S.length - 1])} ${String(S[S.length - 1]).slice(2, 4)})`;
+// suma de los indicadores de varios meses: salas-mes, solicitudes y promedios sobre todas las solicitudes
+function indicadoresPeriodo(S, us){
+  const l = S.map(c => indicadoresCiclo(c, us)), sum = k => l.reduce((a, x) => a + x[k], 0), cat = k => l.flatMap(x => x[k]);
+  const total = sum('total'), dot = sum('dot'), pedV = cat('pedV'), aTiempo = sum('aTiempo'), conf = cat('conf'), ent = cat('ent');
+  return {S, total, dot, pidio:sum('pidio'), cob: total ? dot / total * 100 : null, ped:cat('ped'), pedV, aTiempo, pctTiempo: pedV.length ? aTiempo / pedV.length * 100 : null,
+    dConf: prom(conf.map(p => diasEntre(p.ts, p.confirmado_ts))), dEnt: prom(ent.map(p => diasEntre(p.confirmado_ts, p.entregado_ts))), conf, ent};
+}
+// período anterior de igual largo, justo antes del primer mes elegido
+const periodoAnterior = S => Array.from({length:S.length}, (_, i) => cicloMenos(S[0], S.length - i)).filter(c => c >= inicioDatos());
+function selMesesHtml(S){
+  const d = mesesDisp().slice().reverse(), cA = cicloActivo();
+  return `<div class="f ms-wrap"><span>Meses</span><details class="ms" id="msMeses"${msAbierto ? ' open' : ''}><summary>${esc(nomMeses(S))}</summary><div class="ms-pop">
+    <div class="ms-acc"><button type="button" class="btn btn-sm" data-ms="ult">Último cerrado</button><button type="button" class="btn btn-sm" data-ms="3">Últimos 3</button><button type="button" class="btn btn-sm" data-ms="todos">Todos</button></div>
+    ${d.map(c => `<label class="ms-op"><input type="checkbox" data-mes="${c}" ${S.includes(c) ? 'checked' : ''}> ${esc(nombreCiclo(c))}${c === cA ? ' <small>(en curso)</small>' : ''}</label>`).join('')}</div></details></div>`;
+}
+document.addEventListener('toggle', e => { if(e.target.id === 'msMeses') msAbierto = e.target.open; }, true);
+document.addEventListener('change', e => { const m = e.target.dataset?.mes; if(m == null) return; const c = +m, S = mesesSel();
+  if(e.target.checked) fCobMeses = [...new Set([...S, c])]; else { if(S.length === 1){ e.target.checked = true; toast('Elija al menos un mes.'); return; } fCobMeses = S.filter(x => x !== c); }
+  msAbierto = true; render(); });
+document.addEventListener('click', e => { const b = e.target.closest?.('[data-ms]'); if(!b) return; const d = mesesDisp(), cA = cicloActivo(), cerr = d.filter(c => c < cA);
+  fCobMeses = b.dataset.ms === 'todos' ? d : b.dataset.ms === '3' ? cerr.slice(-3) : cerr.slice(-1); if(!fCobMeses.length) fCobMeses = d.slice(-1); msAbierto = true; render(); });
+document.addEventListener('click', e => { if(msAbierto && !e.target.closest?.('#msMeses')){ const el = document.getElementById('msMeses'); if(el) el.open = false; msAbierto = false; } });
 const diasEntre = (a, b) => (b - a) / 864e5;
 const prom = l => l.length ? l.reduce((x, y) => x + y, 0) / l.length : null;
 function indicadoresCiclo(c, us){
@@ -134,7 +161,7 @@ function indicadoresCiclo(c, us){
   const fin = fases(c).envio[1].getTime(), pedV = ped.filter(p => !esHist(p)), aTiempo = pedV.filter(p => p.ts < fin).length;
   const conf = ped.filter(p => p.confirmado_ts), ent = ped.filter(p => p.entregado_ts && p.confirmado_ts);
   return {c, total:vig.length, dot, pidio, cob: vig.length ? dot / vig.length * 100 : null, ped, pedV, aTiempo, pctTiempo: pedV.length ? aTiempo / pedV.length * 100 : null,
-    dConf: prom(conf.map(p => diasEntre(p.ts, p.confirmado_ts))), dEnt: prom(ent.map(p => diasEntre(p.confirmado_ts, p.entregado_ts))), conf};
+    dConf: prom(conf.map(p => diasEntre(p.ts, p.confirmado_ts))), dEnt: prom(ent.map(p => diasEntre(p.confirmado_ts, p.entregado_ts))), conf, ent};
 }
 // con aperturas por defecto: también son costo para la empresa
 const valorSalaCiclo = (uid, c, conAp = true) => (conAp ? delCicloTodos : delCiclo)(c, p => p.unidad_id === uid && (p.estado === 'Confirmada' || p.estado === 'Aprobada' || p.estado === 'Entregada')).reduce((a, p) => a + valorPedido(p, p.estado === 'Entregada').total, 0);
@@ -143,15 +170,18 @@ const EST_COB = [['Entregada','Dotada','var(--tile-ent)'],['Aprobada','Aprobada,
 const f1c = n => n == null ? '—' : (Math.round(n * 10) / 10).toLocaleString('es-BO');
 const mesCorto = c => nombreCiclo(c).slice(0, 3);
 function deltaCob(a, b, cB, mejorSube = true, suf = ' pts'){
-  if(a == null || b == null) return '<span class="ind-d">sin ciclo anterior para comparar</span>';
-  const d = a - b; if(Math.abs(d) < 0.05) return `<span class="ind-d">= igual que ${esc(nombreCiclo(cB).split(' ')[0].toLowerCase())}</span>`;
+  const ref = typeof cB === 'string' ? cB : nombreCiclo(cB).split(' ')[0].toLowerCase();
+  if(a == null || b == null) return '<span class="ind-d">sin período anterior para comparar</span>';
+  const d = a - b; if(Math.abs(d) < 0.05) return `<span class="ind-d">= igual que ${esc(ref)}</span>`;
   const bien = mejorSube ? d > 0 : d < 0;
-  return `<span class="ind-d ${bien ? 'up' : 'down'}">${d > 0 ? '▲' : '▼'} ${f1c(Math.abs(d))}${suf} vs ${esc(nombreCiclo(cB).split(' ')[0].toLowerCase())}</span>`;
+  return `<span class="ind-d ${bien ? 'up' : 'down'}">${d > 0 ? '▲' : '▼'} ${f1c(Math.abs(d))}${suf} vs ${esc(ref)}</span>`;
 }
 function vCobertura(){
   if(!verTodoCob() && fCobGr !== 'TODOS' && !rol.grupos.includes(fCobGr)) fCobGr = 'TODOS';
-  const cA = cicloActivo(), ciclos = [5,4,3,2,1,0].map(k => cicloMenos(cA, k)), gs = gruposCob(), us = unidadesCob(fCobTipo, fCobGr);
-  const idx = Math.max(1, Math.min(5, fIndCiclo)), c = ciclos[idx], A = indicadoresCiclo(c, us), B = indicadoresCiclo(ciclos[idx - 1], us), ini = inicioDatos();
+  const cA = cicloActivo(), gs = gruposCob(), us = unidadesCob(fCobTipo, fCobGr), ini = inicioDatos();
+  // meses elegidos: con uno solo, los gráficos por mes muestran ese mes y los 5 anteriores; con varios, solo los elegidos y los indicadores los suman
+  const S = mesesSel(), multi = S.length > 1, c = S[S.length - 1], ciclos = multi ? S : [5,4,3,2,1,0].map(k => cicloMenos(c, k)).filter(cc => cc >= ini || cc === c);
+  const marca = cc => !multi && cc === c, nomS = nomMeses(S), Pv = periodoAnterior(S), A = indicadoresPeriodo(S, us), B = Pv.length ? indicadoresPeriodo(Pv, us) : {}, refB = multi ? 'período anterior' : nombreCiclo(Pv[0] || c).split(' ')[0].toLowerCase();
   const serie = ciclos.map(cc => { const vig = us.filter(u => vigenteEn(u, cc) && cc >= ini), cnt = {}; vig.forEach(u => { const e = estadoCiclo(u.id, cc) || 'none'; cnt[e] = (cnt[e] || 0) + 1; }); return {c:cc, total:vig.length, cnt}; });
   const conP = verPrecios();
   // A) estado por ciclo: columnas apiladas
@@ -159,11 +189,11 @@ function vCobertura(){
   const colEst = serie.map((x, i) => { const segs = EST_COB.map(([k, l, col]) => { const n = x.cnt[k] || 0; if(!n) return ''; const h = x.total ? Math.max(2, n / x.total * H) : 0;
       return `<span class="seg" style="height:${h}px;background:${col}" data-tip="${esc(nombreCiclo(x.c))} · ${esc(l)}: ${n} de ${x.total} (${f1c(n / x.total * 100)} %)"></span>`; }).join('');
     const pct = x.total ? (x.cnt.Entregada || 0) / x.total * 100 : null;
-    return `<div class="col${i === idx ? ' on' : ''}"><span class="col-v">${pct == null ? '' : Math.round(pct) + '%'}</span><div class="stack" style="height:${H}px">${x.total ? segs : '<span class="seg vacio" style="height:2px" data-tip="Sin datos"></span>'}</div><span class="col-l">${esc(mesCorto(x.c))}</span></div>`; }).join('');
+    return `<div class="col${marca(x.c) ? ' on' : ''}"><span class="col-v">${pct == null ? '' : Math.round(pct) + '%'}</span><div class="stack" style="height:${H}px">${x.total ? segs : '<span class="seg vacio" style="height:2px" data-tip="Sin datos"></span>'}</div><span class="col-l">${esc(mesCorto(x.c))}</span></div>`; }).join('');
   const leyenda = `<div class="leyenda-g">${EST_COB.map(([k, l, col]) => `<span><i style="background:${col}"></i>${esc(l)}</span>`).join('')}</div>`;
   // B) cobertura por grupo
-  const porG = gs.filter(g => fCobGr === 'TODOS' || g.id === fCobGr).map(g => { const ug = us.filter(u => u.grupo_id === g.id && vigenteEn(u, c) && c >= ini); const d = ug.filter(u => estadoCiclo(u.id, c) === 'Entregada').length; return {g, n:ug.length, d, p: ug.length ? d / ug.length * 100 : null}; }).filter(x => x.n).sort((a, b) => b.p - a.p);
-  const barrasG = porG.map(x => `<div class="hb"><span class="hb-l">${esc(x.g.aprobador)}</span><span class="hb-t" data-tip="${esc(x.g.nombre)}: ${x.d} de ${x.n} dotadas"><span class="hb-f" style="width:${x.p}%"></span></span><span class="hb-v">${Math.round(x.p)}% <small>${x.d}/${x.n}</small></span></div>`).join('') || '<p class="sub">Sin datos en este ciclo.</p>';
+  const porG = gs.filter(g => fCobGr === 'TODOS' || g.id === fCobGr).map(g => { let n = 0, d = 0; S.forEach(cc => { const ug = us.filter(u => u.grupo_id === g.id && vigenteEn(u, cc) && cc >= ini); n += ug.length; d += ug.filter(u => estadoCiclo(u.id, cc) === 'Entregada').length; }); return {g, n, d, p: n ? d / n * 100 : null}; }).filter(x => x.n).sort((a, b) => b.p - a.p);
+  const barrasG = porG.map(x => `<div class="hb"><span class="hb-l">${esc(x.g.aprobador)}</span><span class="hb-t" data-tip="${esc(x.g.nombre)}: ${x.d} de ${x.n} dotadas${multi ? ' (salas por mes)' : ''}"><span class="hb-f" style="width:${x.p}%"></span></span><span class="hb-v">${Math.round(x.p)}% <small>${x.d}/${x.n}</small></span></div>`).join('') || '<p class="sub">Sin datos en este ciclo.</p>';
   // C) días para confirmar por aprobador (meta: 5 días, ventana de aprobación)
   const porAp = {}; A.conf.forEach(p => { const g = U[p.unidad_id]?.grupo_id; (porAp[g] ||= []).push(diasEntre(p.ts, p.confirmado_ts)); });
   const apL = Object.entries(porAp).map(([g, l]) => ({g, n:l.length, d:prom(l)})).sort((a, b) => b.d - a.d), maxD = Math.max(7, ...apL.map(x => x.d));
@@ -174,71 +204,71 @@ function vCobertura(){
   const consC = conP ? ciclos.map(cc => { const por = {}; delCicloTodos(cc, p => us.some(u => u.id === p.unidad_id) && (p.estado === 'Confirmada' || p.estado === 'Aprobada' || p.estado === 'Entregada')).forEach(p => { const a = almDeU(p.unidad_id); por[a] = (por[a] || 0) + valorPedido(p, p.estado === 'Entregada').total; });
     return {c:cc, por, v:Object.values(por).reduce((a, x) => a + x, 0)}; }) : [];
   const maxV = Math.max(1, ...consC.map(x => x.v)), almsCons = ALM_COL.filter(([a]) => consC.some(x => x.por[a]));
-  const colCons = consC.map((x, i) => `<div class="col${i === idx ? ' on' : ''}"><span class="col-v"${almsCons.length > 1 && ALM_COL.some(([a]) => x.por[a] && x.por[a] / maxV * H < 15) ? ' style="padding-bottom:12px"' : ''}>${x.v && i === idx ? 'Bs ' + Math.round(x.v).toLocaleString('es-BO') : ''}</span><div class="stack" style="height:${H}px">${x.v ? ALM_COL.map(([a, nom, cls]) => x.por[a] ? (() => { const hh = Math.max(2, x.por[a] / maxV * H), pc = Math.round(x.por[a] / x.v * 100); return `<span class="seg ${cls}" style="height:${hh}px" data-tip="${esc(nombreCiclo(x.c))} · ${nom}: ${fBs(x.por[a])} (${pc} %)${almsCons.length > 1 ? ` · total ${fBs(x.v)}` : ''}">${almsCons.length > 1 ? `<span class="seg-pct${hh < 15 ? ' fuera' : ''}">${pc}%</span>` : ''}</span>`; })() : '').join('') : '<span class="seg vacio" style="height:2px" data-tip="Sin consumo"></span>'}</div><span class="col-l">${esc(mesCorto(x.c))}</span></div>`).join('');
+  const colCons = consC.map((x, i) => `<div class="col${marca(x.c) ? ' on' : ''}"><span class="col-v"${almsCons.length > 1 && ALM_COL.some(([a]) => x.por[a] && x.por[a] / maxV * H < 15) ? ' style="padding-bottom:12px"' : ''}>${x.v && (marca(x.c) || (multi && consC.length <= 6)) ? 'Bs ' + Math.round(x.v).toLocaleString('es-BO') : ''}</span><div class="stack" style="height:${H}px">${x.v ? ALM_COL.map(([a, nom, cls]) => x.por[a] ? (() => { const hh = Math.max(2, x.por[a] / maxV * H), pc = Math.round(x.por[a] / x.v * 100); return `<span class="seg ${cls}" style="height:${hh}px" data-tip="${esc(nombreCiclo(x.c))} · ${nom}: ${fBs(x.por[a])} (${pc} %)${almsCons.length > 1 ? ` · total ${fBs(x.v)}` : ''}">${almsCons.length > 1 ? `<span class="seg-pct${hh < 15 ? ' fuera' : ''}">${pc}%</span>` : ''}</span>`; })() : '').join('') : '<span class="seg vacio" style="height:2px" data-tip="Sin consumo"></span>'}</div><span class="col-l">${esc(mesCorto(x.c))}</span></div>`).join('');
   const leyCons = almsCons.length > 1 ? `<div class="leyenda-g">${almsCons.map(([a, nom, cls]) => `<span><i class="${cls}"></i>${nom}</span>`).join('')}</div>` : '';
   // D2) gasto mensual en Bs para abastecer a las sucursales (línea, últimos 12 ciclos con datos, incluye aperturas)
-  const graficoGasto = conP ? lineaGastoSuc(cA, fCobGr) : '';
+  const graficoGasto = conP ? lineaGastoSuc(cA, fCobGr, multi ? S : null) : '';
   // E) salas fuera de lo normal: consumo del ciclo vs su promedio de los 3 anteriores
   const cons = conP ? us.filter(u => vigenteEn(u, c)).map(u => { const v = valorSalaCiclo(u.id, c, false), hist = [1, 2, 3].map(k => cicloMenos(c, k)).filter(cc => vigenteEn(u, cc)).map(cc => valorSalaCiclo(u.id, cc, false)).filter(x => x > 0), pr = prom(hist); return {u, v, pr, r: pr ? v / pr : null}; }).filter(x => x.v > 0 && x.pr) : [];
   const fuera = cons.filter(x => x.r >= 1.5 || x.r <= .5).sort((a, b) => Math.abs(Math.log(b.r)) - Math.abs(Math.log(a.r))).slice(0, 8), maxF = Math.max(1, ...fuera.map(x => Math.max(x.v, x.pr)));
   const barrasF = fuera.map(x => `<div class="hb"><span class="hb-l">${esc(x.u.nombre)}</span><span class="hb-t" data-tip="${esc(x.u.nombre)}: ${fBs(x.v)} este ciclo · promedio ${fBs(x.pr)}"><span class="hb-f ${x.r >= 1.5 ? 'alto' : 'bajo'}" style="width:${x.v / maxF * 100}%"></span><span class="hb-prom" style="left:${x.pr / maxF * 100}%"></span></span><span class="hb-v ${x.r >= 1.5 ? 'neg' : ''}">${x.r >= 1 ? '+' : ''}${Math.round((x.r - 1) * 100)}%</span></div>`).join('');
   // G) consumo en Bs por grupo y por sala o área en el ciclo elegido
-  const consU = conP ? us.map(u => ({u, v:valorSalaCiclo(u.id, c)})).filter(x => x.v > 0) : [], totC = consU.reduce((a, x) => a + x.v, 0);
+  const consU = conP ? us.map(u => ({u, v:S.reduce((a, cc) => a + valorSalaCiclo(u.id, cc), 0)})).filter(x => x.v > 0) : [], totC = consU.reduce((a, x) => a + x.v, 0);
   const porGr = gs.filter(g => fCobGr === 'TODOS' || g.id === fCobGr).map(g => { const l = consU.filter(x => x.u.grupo_id === g.id); return {g, v:l.reduce((a, x) => a + x.v, 0), n:l.length}; }).filter(x => x.v > 0).sort((a, b) => b.v - a.v);
   const maxG = Math.max(1, ...porGr.map(x => x.v));
   const barrasBsG = porGr.map(x => `<div class="hb"><span class="hb-l">${esc(x.g.aprobador)}</span><span class="hb-t" data-tip="${esc(x.g.nombre)}: ${fBs(x.v)} · ${plural(x.n, 'sala o área', 'salas y áreas')} · promedio ${fBs(x.v / x.n)} por sala"><span class="hb-f" style="width:${x.v / maxG * 100}%"></span></span><span class="hb-v">Bs ${Math.round(x.v).toLocaleString('es-BO')} <small>${totC ? Math.round(x.v / totC * 100) : 0}%</small></span></div>`).join('');
   const topU = consU.slice().sort((a, b) => b.v - a.v).slice(0, 10), maxU = Math.max(1, ...topU.map(x => x.v));
   const barrasBsU = topU.map(x => `<div class="hb"><span class="hb-l">${esc(x.u.nombre)}</span><span class="hb-t" data-tip="${esc(x.u.nombre)} (${esc(G[x.u.grupo_id]?.aprobador || '')}): ${fBs(x.v)}"><span class="hb-f" style="width:${x.v / maxU * 100}%"></span></span><span class="hb-v">Bs ${Math.round(x.v).toLocaleString('es-BO')}</span></div>`).join('');
   // F) salas sin solicitud
-  const sinSol = us.filter(u => vigenteEn(u, c) && c >= ini && !estadoCiclo(u.id, c)).sort((a, b) => ordU(a) - ordU(b));
-  const porEnt = us.filter(u => vigenteEn(u, c) && estadoCiclo(u.id, c) === 'Aprobada').length;
+  const sinSol = us.map(u => { const vig = S.filter(cc => vigenteEn(u, cc) && cc >= ini); return {u, n:vig.length, f:vig.filter(cc => !estadoCiclo(u.id, cc)).length}; }).filter(x => x.f).sort((a, b) => b.f - a.f || ordU(a.u) - ordU(b.u));
+  const porEnt = S.reduce((a, cc) => a + us.filter(u => vigenteEn(u, cc) && estadoCiclo(u.id, cc) === 'Aprobada').length, 0);
   const kpi = (t, v, d, s, cls = '') => `<div class="ind ${cls}"><div class="ind-t">${t}</div><div class="ind-v">${v}</div>${d}<div class="ind-s">${s}</div></div>`;
-  return `<section class="panel"><div class="panel-head"><div><h2>Cobertura e indicadores</h2><p class="sub">${verTodoCob() ? 'Todas las salas' : esc(gs.map(g => g.nombre).join(', '))} · el ciclo elegido comparado con el anterior. Pase el mouse sobre las barras para ver el detalle.</p></div>
-    <div class="row"><label class="f" style="margin:0">Ciclo<select id="fIndCiclo">${ciclos.map((cc, i) => i ? `<option value="${i}" ${i === idx ? 'selected' : ''}>${esc(nombreCiclo(cc))}${i === 5 ? ' (en curso)' : ''}</option>` : '').join('')}</select></label>
+  return `<section class="panel"><div class="panel-head"><div><h2>Cobertura e indicadores</h2><p class="sub">${verTodoCob() ? 'Todas las salas' : esc(gs.map(g => g.nombre).join(', '))} · los meses elegidos comparados con el período anterior de igual largo. Pase el mouse sobre las barras para ver el detalle.</p></div>
+    <div class="row">${selMesesHtml(S)}
       ${verTodoCob() ? `<label class="f" style="margin:0">Incluir<select id="fCobTipo">${[['Sucursal','Solo sucursales'],['TODOS','Sucursales y áreas']].map(([v,t]) => `<option value="${v}" ${fCobTipo === v ? 'selected' : ''}>${t}</option>`).join('')}</select></label>` : ''}
       ${gs.length > 1 ? `<label class="f" style="margin:0">Grupo<select id="fCobGr"><option value="TODOS">${verTodoCob() ? 'Todos los grupos' : 'Todos mis grupos'}</option>${gs.map(g => `<option value="${g.id}" ${fCobGr === g.id ? 'selected' : ''}>${esc(g.nombre)}</option>`).join('')}</select></label>` : ''}
       <button class="btn btn-sm" id="btnExpCob" style="align-self:flex-end">⬇ Excel por sala</button></div></div>
     <div class="ind-grid k4">
-      ${kpi('Cobertura', A.cob == null ? '—' : f1c(A.cob) + ' %', deltaCob(A.cob, B.cob, B.c), `${A.dot} de ${A.total} salas dotadas · ${A.pidio} pidieron`)}
-      ${kpi('Enviaron a tiempo', A.pctTiempo == null ? '—' : f1c(A.pctTiempo) + ' %', deltaCob(A.pctTiempo, B.pctTiempo, B.c), `hasta el día ${fases(c).envio[1].getDate() - 1} · ${A.aTiempo} de ${A.pedV.length} solicitudes${A.pedV.length < A.ped.length ? ' (sin históricos)' : ''}`)}
-      ${kpi('Días para confirmar', f1c(A.dConf), deltaCob(A.dConf, B.dConf, B.c, false, ' días'), 'promedio desde el envío · meta 5 días', A.dConf > 5 ? 'alerta' : '')}
-      ${kpi('Días para entregar', f1c(A.dEnt), deltaCob(A.dEnt, B.dEnt, B.c, false, ' días'), `promedio desde la confirmación${porEnt ? ` · ${plural(porEnt, 'sala por entregar', 'salas por entregar')}` : ''}`)}
+      ${kpi('Cobertura', A.cob == null ? '—' : f1c(A.cob) + ' %', deltaCob(A.cob, B.cob, refB), `${A.dot} de ${A.total} ${multi ? 'salas-mes' : 'salas'} dotadas · ${A.pidio} pidieron`)}
+      ${kpi('Enviaron a tiempo', A.pctTiempo == null ? '—' : f1c(A.pctTiempo) + ' %', deltaCob(A.pctTiempo, B.pctTiempo, refB), `hasta el día ${fases(c).envio[1].getDate() - 1}${multi ? ' de cada mes' : ''} · ${A.aTiempo} de ${A.pedV.length} solicitudes${A.pedV.length < A.ped.length ? ' (sin históricos)' : ''}`)}
+      ${kpi('Días para confirmar', f1c(A.dConf), deltaCob(A.dConf, B.dConf, refB, false, ' días'), 'promedio desde el envío · meta 5 días', A.dConf > 5 ? 'alerta' : '')}
+      ${kpi('Días para entregar', f1c(A.dEnt), deltaCob(A.dEnt, B.dEnt, refB, false, ' días'), `promedio desde la confirmación${porEnt ? ` · ${plural(porEnt, 'sala por entregar', 'salas por entregar')}` : ''}`)}
     </div>
     <div class="graf-grid">
       <div class="graf"><h3>Estado de las salas por ciclo</h3><p class="sub">El número arriba de cada columna es el % de salas dotadas.</p><div class="cols">${colEst}</div>${leyenda}</div>
-      <div class="graf"><h3>Cobertura por grupo · ${esc(nombreCiclo(c))}</h3><p class="sub">% de salas dotadas de cada aprobador.</p><div class="hbs">${barrasG}</div></div>
-      <div class="graf"><h3>Días para confirmar por aprobador</h3><p class="sub">La línea punteada es la meta de 5 días; en rojo, quien la supera.</p><div class="hbs">${barrasAp}</div></div>
+      <div class="graf"><h3>Cobertura por grupo · ${esc(nomS)}</h3><p class="sub">% de salas dotadas de cada aprobador${multi ? ', sumando los meses elegidos' : ''}.</p><div class="hbs">${barrasG}</div></div>
+      <div class="graf"><h3>Días para confirmar por aprobador · ${esc(nomS)}</h3><p class="sub">La línea punteada es la meta de 5 días; en rojo, quien la supera.</p><div class="hbs">${barrasAp}</div></div>
       ${conP ? `<div class="graf"><h3>Consumo por ciclo (Bs)</h3><p class="sub">Valor de lo aprobado y entregado, incluidas las aperturas.</p><div class="cols">${colCons}</div>${leyCons}</div>
       ${graficoGasto}
-      <div class="graf"><h3>Consumo por grupo · ${esc(nombreCiclo(c))}</h3><p class="sub">Valor en Bs de lo aprobado y entregado de cada grupo, y su % del total (${fBs(totC)}).</p><div class="hbs">${barrasBsG || '<p class="sub">Sin consumo en este ciclo.</p>'}</div></div>
-      <div class="graf"><h3>Mayor consumo por sala o área · ${esc(nombreCiclo(c))}</h3><p class="sub">Las 10 que más consumieron en Bs, incluidas las aperturas.</p><div class="hbs">${barrasBsU || '<p class="sub">Sin consumo en este ciclo.</p>'}</div></div>
-      <div class="graf"><h3>Salas fuera de lo normal · ${esc(nombreCiclo(c))}</h3><p class="sub">Consumo mensual del ciclo (sin aperturas) frente a su promedio de los 3 anteriores (marca negra). Rojo: 50 % o más arriba; amarillo: la mitad o menos.</p><div class="hbs">${barrasF || '<p class="sub">Ninguna sala pidió fuera de lo normal, o todavía no hay ciclos anteriores para comparar.</p>'}</div></div>` : ''}
-      <div class="graf"><h3>Sin solicitud en ${esc(nombreCiclo(c))} <span class="chip ${sinSol.length ? 'alerta' : 'Entregada'}">${sinSol.length}</span></h3><p class="sub">Salas y áreas que no enviaron ninguna solicitud en el ciclo.</p>
-        <div class="sin-sol">${sinSol.map(u => `<span class="chip">${esc(u.nombre)}</span>`).join('') || '<span class="sub">Todas pidieron. 🎉</span>'}</div></div>
+      <div class="graf"><h3>Consumo por grupo · ${esc(nomS)}</h3><p class="sub">Valor en Bs de lo aprobado y entregado de cada grupo, y su % del total (${fBs(totC)}).</p><div class="hbs">${barrasBsG || '<p class="sub">Sin consumo en este ciclo.</p>'}</div></div>
+      <div class="graf"><h3>Mayor consumo por sala o área · ${esc(nomS)}</h3><p class="sub">Las 10 que más consumieron en Bs${multi ? ' sumando los meses elegidos' : ''}, incluidas las aperturas.</p><div class="hbs">${barrasBsU || '<p class="sub">Sin consumo en este ciclo.</p>'}</div></div>
+      <div class="graf"><h3>Salas fuera de lo normal · ${esc(nombreCiclo(c))}</h3><p class="sub">${multi ? `Último mes elegido (${esc(nombreCiclo(c))}): ` : ''}Consumo mensual del ciclo (sin aperturas) frente a su promedio de los 3 anteriores (marca negra). Rojo: 50 % o más arriba; amarillo: la mitad o menos.</p><div class="hbs">${barrasF || '<p class="sub">Ninguna sala pidió fuera de lo normal, o todavía no hay ciclos anteriores para comparar.</p>'}</div></div>` : ''}
+      <div class="graf"><h3>Sin solicitud en ${esc(nomS)} <span class="chip ${sinSol.length ? 'alerta' : 'Entregada'}">${sinSol.length}</span></h3><p class="sub">Salas y áreas que no enviaron ninguna solicitud${multi ? ' en al menos uno de los meses elegidos (entre paréntesis, en cuántos)' : ' en el ciclo'}.</p>
+        <div class="sin-sol">${sinSol.map(x => `<span class="chip">${esc(x.u.nombre)}${multi ? ` (${x.f}/${x.n})` : ''}</span>`).join('') || '<span class="sub">Todas pidieron. 🎉</span>'}</div></div>
     </div></section>`;
 }
 function exportarCobertura(){
-  const c = cicloActivo(), ciclos = [5,4,3,2,1,0].map(k => cicloMenos(c, k)), W = XL.libro(), h = W.hoja('Cobertura');
+  const S = mesesSel(), cA = cicloActivo(), ciclos = S.length > 1 ? S : [5,4,3,2,1,0].map(k => cicloMenos(S[0], k)), W = XL.libro(), h = W.hoja('Cobertura'), nC = ciclos.length;
   const cab = {b:true, sz:10, color:'FFFFFFFF', fill:'FF1F3864', h:'center', v:'center', wrap:true, bt:'thin', bb:'thin', bl:'thin', br:'thin'};
   const COL = {Entregada:'FFC6EFCE', Aprobada:'FFDDEBF7', Confirmada:'FFE9DDF7', Enviada:'FFFFEB9C', Rechazada:'FFFFC7CE'};
   ['Cod. Sucursal','Sala / área','Muelle','Aprueba', ...ciclos.map(nombreCiclo), 'Ciclos sin dotar'].forEach((t, i) => h.set(0, i, t, cab));
-  h.altos[0] = 30; [10,32,10,26,11,11,11,11,11,11,10].forEach((w, i) => h.anchos[i] = w);
+  h.altos[0] = 30; [10,32,10,26, ...ciclos.map(() => 11), 10].forEach((w, i) => h.anchos[i] = w);
   unidadesCob(fCobTipo, fCobGr).sort((a,b) => ordU(a) - ordU(b)).forEach((u, r) => {
     const est = ciclos.map(cc => estadoCiclo(u.id, cc)), s = (hh, ex = {}) => ({sz:9, h:hh, v:'center', bt:'thin', bb:'thin', bl:'thin', br:'thin', ...ex});
     h.set(r + 1, 0, numSi(u.codigo_sala), s('center')); h.set(r + 1, 1, u.nombre, s('left')); h.set(r + 1, 2, u.muelle || '', s('center')); h.set(r + 1, 3, G[u.grupo_id]?.aprobador || '', s('left'));
     const iu = Math.max(inicioDatos(), primerCiclo(u));
     est.forEach((e, i) => h.set(r + 1, 4 + i, ciclos[i] < iu ? '' : (e || 'Sin solicitud'), s('center', {fill:ciclos[i] < iu ? null : (COL[e] || 'FFF2F2F2')})));
-    h.set(r + 1, 10, contarSinDotar(est, ciclos, iu), s('center', {b:true}));
+    h.set(r + 1, 4 + nC, est.filter((e, i) => ciclos[i] >= iu && ciclos[i] !== cA && e !== 'Entregada').length, s('center', {b:true}));
   });
   h.freeze = 1; h.titulos = ['1','1']; h.ajustarAncho = true;
   descargar(W.generar(), `Cobertura_Dotacion_${new Date().toISOString().slice(0,10)}.xlsx`);
 }
 
 // línea de gasto mensual (Bs) de todas las sucursales: lo aprobado y entregado de cada ciclo, incluidas las aperturas y las sucursales ya cerradas
-function lineaGastoSuc(cA, gr){
+function lineaGastoSuc(cA, gr, lista){
   const ok = p => { const u = U[p.unidad_id]; return u && u.tipo === 'Sucursal' && (verTodoCob() || rol.grupos.includes(u.grupo_id)) && (gr === 'TODOS' || u.grupo_id === gr) && (p.estado === 'Confirmada' || p.estado === 'Aprobada' || p.estado === 'Entregada'); };
-  let serie = Array.from({length:12}, (_, k) => cicloMenos(cA, 11 - k)).map(c => { const l = delCicloTodos(c, ok); return {c, v:l.reduce((a, p) => a + valorPedido(p, p.estado === 'Entregada').total, 0), n:new Set(l.map(p => p.unidad_id)).size}; });
-  const i0 = serie.findIndex(x => x.v > 0); if(i0 < 0) return `<div class="graf graf-ancho"><h3>Gasto mensual en sucursales (Bs)</h3><p class="sub">Todavía no hay consumo valorizado de sucursales.</p></div>`;
+  let serie = (lista || Array.from({length:12}, (_, k) => cicloMenos(cA, 11 - k))).map(c => { const l = delCicloTodos(c, ok); return {c, v:l.reduce((a, p) => a + valorPedido(p, p.estado === 'Entregada').total, 0), n:new Set(l.map(p => p.unidad_id)).size}; });
+  const i0 = lista ? 0 : serie.findIndex(x => x.v > 0); if(!serie.some(x => x.v > 0)) return `<div class="graf graf-ancho"><h3>Gasto mensual en sucursales (Bs)</h3><p class="sub">Todavía no hay consumo valorizado de sucursales.</p></div>`;
   serie = serie.slice(i0);
   const W = 860, H = 230, pl = 14, pr = 14, pt = 30, pb = 34, n = serie.length, max = Math.max(...serie.map(x => x.v)) * 1.12 || 1;
   const X = i => n === 1 ? W / 2 : pl + 30 + i * (W - pl - pr - 60) / (n - 1), Y = v => pt + (H - pt - pb) * (1 - v / max);
