@@ -1723,7 +1723,7 @@ function vInventario(){
   const cuando = INV_INFO ? `Inventario cargado el ${fFH(new Date(INV_INFO.ts).getTime())}${INV_INFO.archivo ? ' · ' + esc(INV_INFO.archivo) : ''}` : 'Todavía no se cargó el inventario';
   const sinProv = conNec.filter(r => r.proveedor === 'SIN PROVEEDOR').length;
   return `<section class="panel"><div class="panel-head"><div><h2>Necesidad de compra${multiAlm() ? ' · ' + esc(almNom(almCosto())) : ''}</h2><p class="sub">${cuando}. Total del período = lo confirmado que falta entregar${fInvPend ? ' + lo que está por confirmar' : ''}; a comprar = total del período − stock.</p></div>
-    <div class="row">${almVista() === 'TODOS' ? selAlmCosto() : ''}${editaAlm(almCosto()) ? '<button class="btn btn-sm btn-primary" id="btnInvSubir">⬆ Cargar inventario</button><input type="file" id="fileInv" accept=".xlsx,.xls,.csv" hidden>' : ''}<button class="btn btn-sm" id="btnInvExcel" ${faltan.length ? '' : 'disabled'}>⬇ Excel de compra</button></div></div>
+    <div class="row">${almVista() === 'TODOS' ? selAlmCosto() : ''}${editaAlm(almCosto()) ? '<button class="btn btn-sm btn-primary" id="btnInvSubir">⬆ Cargar inventario</button><input type="file" id="fileInv" accept=".xlsx,.xls,.csv" hidden>' : ''}<button class="btn btn-sm" id="btnInvExcel" ${l.length ? '' : 'disabled'} title="Descarga lo que se ve en la tabla, con los filtros aplicados">⬇ Excel de compra</button></div></div>
     <div class="inv-res"><div class="kpi ${faltan.length ? 'mal' : 'bien'}"><b>${faltan.length}</b><span>de ${conNec.length} insumos solicitados<br>no alcanzan con el stock</span></div>
       ${verPrecios() ? `<div class="kpi"><b>${fBs(valor)}</b><span>valor a comprar${filtro ? ' (filtrado)' : ''}${sinP ? `<br>${plural(sinP, 'insumo sin costo', 'insumos sin costo')}` : ''}</span></div>` : ''}
       <div class="kpi bien"><b>${conNec.length - faltan.length}</b><span>insumos cubiertos<br>en su totalidad</span></div></div>
@@ -1740,7 +1740,9 @@ function vInventario(){
     (l.length ? `<tfoot><tr class="inv-total"><td colspan="${4 + TIPOS_INV.length + 2}"><strong>Total a pedir${filtro ? ' (según el filtro)' : ''}</strong> · ${plural(l.filter(r => r.falta > 0).length, 'insumo', 'insumos')}</td><td class="num"><strong>${fq(totFalta)}</strong></td>${vp ? `<td></td><td class="num"><strong>${fBs(totL)}</strong></td>` : ''}</tr></tfoot>` : '') + '</table></div></section>';
 }
 function excelCompra(){
-  const l = invFiltrados(datosInventario()).filter(r => r.falta > 0).sort(ordenCompra), band = bandasProv(l), vp = verPrecios();
+  // mismas filas que la tabla: proveedor, búsqueda y "Ver" (solo lo que falta / todo lo solicitado / todos los materiales)
+  const l = invFiltrados(datosInventario()).filter(r => fInvVer === 'todos' || (fInvVer === 'falta' ? r.falta > 0 : r.nec > 0)).sort(ordenCompra), band = bandasProv(l), vp = verPrecios();
+  if(!l.length){ toast('No hay insumos para descargar con estos filtros.'); return; }
   const W = XL.libro(), h = W.hoja('Necesidad de compra'), borde = {bt:'thin', bb:'thin', bl:'thin', br:'thin'};
   const cab = {b:true, sz:10, color:'FFFFFFFF', fill:'FF4F81BD', h:'left', v:'center', ...borde};
   const cols = ['Insumo','PROVEEDOR','COD INT','U.M.','Sucursales','CEDIS','Oficina','Total Período','Stock','A COMPRAR', ...(vp ? ['COSTO UNIT. Bs','VALOR A COMPRAR Bs'] : [])];
