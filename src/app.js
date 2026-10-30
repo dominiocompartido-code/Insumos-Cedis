@@ -692,16 +692,20 @@ function vTablero(){
     <div class="tbl-wrap"><table class="tbl-resumen"><thead><tr><th>Aprobador</th><th class="num">Por confirmar</th><th class="num">Confirmadas</th><th class="num">Entregadas</th><th class="num">Rechazadas</th><th class="num">Total</th>${verPrecios() ? `<th class="num">Valor ${esc(nombreCiclo(cicloActivo()).split(' ')[0].toLowerCase())}</th>` : ''}<th class="num" title="Tiempo de la solicitud más antigua sin confirmar">Más antigua</th></tr></thead><tbody>${filas}</tbody>
     <tfoot><tr><td>Total</td><td class="num">${tot.Enviada}</td><td class="num">${tot.Confirmada}</td><td class="num">${tot.Entregada}</td><td class="num">${tot.Rechazada}</td><td class="num">${T}</td>${verPrecios() ? `<td class="num" style="white-space:nowrap">${fBs(pedidos.filter(p => cicloDe(p.ts) === cicloActivo() && (p.estado === 'Confirmada' || p.estado === 'Aprobada' || p.estado === 'Entregada')).reduce((a,p) => a + valorPedido(p, p.estado === 'Entregada').total, 0))}</td>` : ''}<td></td></tr></tfoot></table></div></section>`;
 }
-let fEnt = 'TODOS';
+let fEnt = 'TODOS', fEntQ = '';
+// búsqueda en Por entregar: N° de solicitud, sala o área, código de sala, aprobador o N° de traspaso (todas las palabras)
+const enBusqEnt = p => { const q = normTxt(fEntQ).trim().split(/\s+/).filter(Boolean); if(!q.length) return true; const u = U[p.unidad_id] || {};
+  const t = normTxt([p.codigo, u.nombre, u.codigo_sala, G[u.grupo_id]?.aprobador, p.nro_traspaso, p.solicitante].filter(Boolean).join(' ')); return q.every(w => t.includes(w)); };
 function vEntregar(){
-  const l = pedidos.filter(p => p.estado === 'Aprobada' && (fEnt === 'TODOS' || (U[p.unidad_id]?.muelle || 'SIN') === fEnt)).sort((a,b) => ordenApert(a,b) || a.confirmado_ts - b.confirmado_ts);
+  const l = pedidos.filter(p => p.estado === 'Aprobada' && (fEnt === 'TODOS' || (U[p.unidad_id]?.muelle || 'SIN') === fEnt) && enBusqEnt(p)).sort((a,b) => ordenApert(a,b) || a.confirmado_ts - b.confirmado_ts);
   const muelles = [...new Set(UL.map(u => u.muelle || 'SIN'))].sort();
   const n = l.filter(p => sel.has(p.id)).length;
   return bloqueAvisos(a => a.tab === 'entregar') + `<section class="panel"><div class="panel-head"><div><h2>Aprobadas por entregar</h2><p class="sub">${rol.admin ? 'La confirmación más antigua primero. Filtre por muelle, marque las que salieron y regístrelas juntas.' : 'Solicitudes confirmadas que Logística CEDIS todavía no entregó, la más antigua primero. Solo consulta.'}</p></div>
     <div class="row">${rol.admin ? '' : '<!--'}<button class="btn btn-sm" id="btnPlantTrasp" title="Excel ORIGEN · DESTINO · SKU · CANTIDAD · PRIORIDAD con los materiales de las solicitudes por entregar, para generar los traspasos">⬇ Plantilla de traspasos</button><button class="btn btn-sm btn-primary" id="btnSubirTrasp">⬆ Subir traspasos (Excel)</button><input type="file" id="fileTrasp" accept=".xlsx,.xls,.csv" hidden>${rol.admin ? '' : '-->'}
+    <input id="fEntQ" placeholder="Buscar sala, N° o traspaso…" value="${esc(fEntQ)}" style="width:220px" autocomplete="off">
     <select id="fEnt" style="width:auto"><option value="TODOS">Todos los muelles</option>${muelles.map(m => `<option value="${m}" ${fEnt === m ? 'selected' : ''}>${m === 'SIN' ? 'Sin muelle' : m}</option>`).join('')}</select></div></div>
     ${rol.admin ? '' : '<!--'}<div class="acciones ${n ? 'on' : ''}"><span><strong>${n}</strong> seleccionadas</span>${n ? '<button class="btn btn-sm" id="btnLimpiarSel">Quitar selección</button>' : ''}<input id="recVarios" maxlength="100" placeholder="Recibido por (opcional)" style="max-width:220px"><button class="btn btn-ok" id="btnEntVarios" ${n ? '' : 'disabled'}>Marcar entregadas</button></div>${rol.admin ? '' : '-->'}
-    ${tabla(l, ['codigo','unidad','muelle','aprob','enviada','items','traspaso','avance'], 'No hay solicitudes confirmadas pendientes de entrega.', rol.admin)}</section>`;
+    ${tabla(l, ['codigo','unidad','muelle','aprob','enviada','items','traspaso','avance'], fEntQ.trim() ? 'Ninguna solicitud por entregar coincide con la búsqueda.' : 'No hay solicitudes confirmadas pendientes de entrega.', rol.admin)}</section>`;
 }
 let fPrep = 'TODOS', fPrepCiclo = null, fPrepAlc = 'todo';
 // Reporte y preparación: solicitudes Confirmadas (no entregadas) cuya confirmación cae en el mes elegido
@@ -1453,7 +1457,8 @@ document.addEventListener('click', e => {
   if(e.target.id === 'trAplicar') aplicarTraspasos(e.target);
 });
 async function entregarVarios(btn){
-  const ids = [...sel].filter(id => pedidos.some(p => p.id === id && p.estado === 'Aprobada'));
+  // solo las seleccionadas que se ven con el filtro de muelle y la búsqueda actuales
+  const ids = [...sel].filter(id => pedidos.some(p => p.id === id && p.estado === 'Aprobada' && (fEnt === 'TODOS' || (U[p.unidad_id]?.muelle || 'SIN') === fEnt) && enBusqEnt(p)));
   if(!ids.length){ toast('Marque al menos una solicitud.'); return; }
   const sinT = ids.map(id => pedidos.find(p => p.id === id)).filter(p => usaTraspaso(p) && !p.nro_traspaso);
   if(sinT.length){ toast(`Falta el número de traspaso en ${sinT.map(p => p.codigo).join(', ')}.`); const i = document.querySelector(`[data-trasp="${sinT[0].id}"]`); if(i) i.focus(); return; }
@@ -1821,7 +1826,7 @@ document.addEventListener('change', e => {
   if(t.id === 'fInvVer'){ fInvVer = t.value; render(); }
   if(t.id === 'fInvProvSel'){ fInvProv = t.value; render(); }
 });
-document.addEventListener('input', e => { if(e.target.id === 'fInvQ'){ fInvQ = e.target.value; render(); } });
+document.addEventListener('input', e => { if(e.target.id === 'fInvQ'){ fInvQ = e.target.value; render(); } if(e.target.id === 'fEntQ'){ fEntQ = e.target.value; render(); } });
 
 // Flechas ↑ ↓: recorrer los resultados del buscador y moverse entre las cantidades de la tabla
 document.addEventListener('keydown', e => {
