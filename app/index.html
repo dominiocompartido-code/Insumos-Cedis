@@ -2256,7 +2256,7 @@ $('detBody').addEventListener('click', async e => {
   t.disabled = true;
   const {error} = await r[0];
   if(error){ t.disabled = false; toast(errMsg(error)); return; }
-  $('mDet').hidden = true; toast(r[1]); cargarPedidos();
+  $('mDet').hidden = true; toast(r[1]); cargarPedidos(); cargarInventario().then(render); // el stock baja al entregar
 });
 
 // ---------- sesión ----------
@@ -2518,7 +2518,7 @@ async function aplicarTraspasos(btn){
       if(error) fallos.push(p.codigo + ' (' + errMsg(error) + ')'); else { ent++; parc++; } } }
   btn.disabled = false; $('mTrasp').hidden = true;
   toast(`${plural(n, 'traspaso asignado', 'traspasos asignados')}${ent ? ` y ${plural(ent, 'solicitud entregada', 'solicitudes entregadas')}${parc ? ` (${parc} parcial${parc > 1 ? 'es' : ''})` : ''}` : ''}.${fallos.length ? ' No se pudo: ' + fallos.join(', ') : ''}`);
-  cargarPedidos();
+  cargarPedidos(); cargarInventario().then(render); // el stock baja al entregar
 }
 document.addEventListener('change', e => {
   if(e.target.id === 'fileTrasp' && e.target.files[0]){ leerTraspasos(e.target.files[0]); e.target.value = ''; }
@@ -2542,7 +2542,7 @@ async function entregarVarios(btn){
   const {data, error} = await sb.rpc('entregar_varios', {p_ids:ids, p_recibido:$('recVarios')?.value || ''});
   btn.disabled = false;
   if(error){ toast(errMsg(error)); return; }
-  sel.clear(); toast(`${plural(data ?? ids.length, 'solicitud entregada', 'solicitudes entregadas')}.`); cargarPedidos();
+  sel.clear(); toast(`${plural(data ?? ids.length, 'solicitud entregada', 'solicitudes entregadas')}.`); cargarPedidos(); cargarInventario().then(render); // el stock baja al entregar
 }
 async function generarReporte(btn){
   const c = fPrepCiclo || cicloActivo(), enAlc = p => fPrepAlc === 'todo' || U[p.unidad_id]?.tipo === 'Sucursal';
@@ -2802,7 +2802,7 @@ function vInventario(){
   const fq = n => (+n).toLocaleString('es-BO', {maximumFractionDigits:2}), band = bandasProv(l); let prev = null, alt = 0;
   const cuando = INV_INFO ? `Inventario cargado el ${fFH(new Date(INV_INFO.ts).getTime())}${INV_INFO.archivo ? ' · ' + esc(INV_INFO.archivo) : ''}` : 'Todavía no se cargó el inventario';
   const sinProv = conNec.filter(r => r.proveedor === 'SIN PROVEEDOR').length;
-  return `<section class="panel"><div class="panel-head"><div><h2>Necesidad de compra${multiAlm() ? ' · ' + esc(almNom(almCosto())) : ''}</h2><p class="sub">${cuando}. Total del período = lo confirmado que falta entregar${fInvPend ? ' + lo que está por confirmar' : ''}; a comprar = total del período − stock.</p></div>
+  return `<section class="panel"><div class="panel-head"><div><h2>Necesidad de compra${multiAlm() ? ' · ' + esc(almNom(almCosto())) : ''}</h2><p class="sub">${cuando}. Total del período = lo confirmado que falta entregar${fInvPend ? ' + lo que está por confirmar' : ''}; a comprar = total del período − stock. El stock baja solo al registrar cada entrega.</p></div>
     <div class="row">${almVista() === 'TODOS' ? selAlmCosto() : ''}${editaAlm(almCosto()) ? '<button class="btn btn-sm btn-primary" id="btnInvSubir">⬆ Cargar inventario</button><input type="file" id="fileInv" accept=".xlsx,.xls,.csv" hidden>' : ''}<button class="btn btn-sm" id="btnInvExcel" ${l.length ? '' : 'disabled'} title="Descarga lo que se ve en la tabla, con los filtros aplicados">⬇ Excel de compra</button></div></div>
     <div class="inv-res"><div class="kpi ${faltan.length ? 'mal' : 'bien'}"><b>${faltan.length}</b><span>de ${conNec.length} insumos solicitados<br>no alcanzan con el stock</span></div>
       ${verPrecios() ? `<div class="kpi"><b>${fBs(valor)}</b><span>valor a comprar${filtro ? ' (filtrado)' : ''}${sinP ? `<br>${plural(sinP, 'insumo sin costo', 'insumos sin costo')}` : ''}</span></div>` : ''}
