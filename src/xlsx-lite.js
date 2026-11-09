@@ -58,7 +58,7 @@ const XL = (() => {
 <worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
 <sheetPr>${h.ajustarAncho ? '<pageSetUpPr fitToPage="1"/>' : ''}</sheetPr><sheetViews><sheetView workbookViewId="0">${pane}</sheetView></sheetViews><sheetFormatPr defaultRowHeight="15"/>${cols}<sheetData>${filas}</sheetData>
 ${h.filtro ? `<autoFilter ref="${h.filtro}"/>` : ''}${h.merges.length ? `<mergeCells count="${h.merges.length}">${h.merges.map(m => `<mergeCell ref="${m}"/>`).join('')}</mergeCells>` : ''}
-<printOptions horizontalCentered="${h.centrar ? 1 : 0}"/><pageMargins left="0.3" right="0.3" top="0.45" bottom="0.55" header="0.2" footer="0.25"/>
+<printOptions horizontalCentered="${h.centrar ? 1 : 0}"/><pageMargins left="0.3" right="0.3" top="0.5" bottom="0.8" header="0.3" footer="0.45"/>
 <pageSetup paperSize="1"${h.escala ? ` scale="${h.escala}"` : ''} orientation="portrait"${h.ajustarAncho ? ' fitToWidth="1" fitToHeight="0"' : ''}/><headerFooter><oddFooter>${x(h.pie)}</oddFooter></headerFooter>
 ${h.cortes.length ? `<rowBreaks count="${h.cortes.length}" manualBreakCount="${h.cortes.length}">${h.cortes.map(r => `<brk id="${r}" max="16383" man="1"/>`).join('')}</rowBreaks>` : ''}</worksheet>`;
     }
