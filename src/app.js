@@ -130,7 +130,9 @@ async function cargarBase(){
   ML = m.data; M = Object.fromEntries(ML.map(x => [x.codigo, x]));
   if(pedAll.length) refrescarNombres();
 }
-function ordU(u){ const m = /^SUC-(\d+)$/.exec(u.id); return u.tipo !== 'Sucursal' ? 100000 + (u.tipo === 'CEDIS' ? 1000 : 0) : m ? +m[1] : 5000; }
+// orden de salas: primero oficina central y CEDIS (son lo primero que se prepara), después las sucursales por número
+function ordU(u){ const m = /^SUC-(\d+)$/.exec(u.id || ''); return u.tipo === 'Oficina central' ? -2000 : u.tipo === 'CEDIS' ? -1000 : u.tipo !== 'Sucursal' ? 100000 : m ? +m[1] : 5000; }
+const esOfCed = p => { const t = U[p.unidad_id]?.tipo; return t === 'Oficina central' || t === 'CEDIS' ? 1 : 0; };
 async function cargarPedidos(){
   const {data, error} = await sb.from('pedidos').select('*').order('ts', {ascending:false}).limit(3000);
   if(error){ setSync(false, 'Sin conexión'); return; }
@@ -697,7 +699,8 @@ let fEnt = 'TODOS', fEntQ = '';
 const enBusqEnt = p => { const q = normTxt(fEntQ).trim().split(/\s+/).filter(Boolean); if(!q.length) return true; const u = U[p.unidad_id] || {};
   const t = normTxt([p.codigo, u.nombre, u.codigo_sala, G[u.grupo_id]?.aprobador, p.nro_traspaso, p.solicitante].filter(Boolean).join(' ')); return q.every(w => t.includes(w)); };
 function vEntregar(){
-  const l = pedidos.filter(p => p.estado === 'Aprobada' && (fEnt === 'TODOS' || (U[p.unidad_id]?.muelle || 'SIN') === fEnt) && enBusqEnt(p)).sort((a,b) => ordenApert(a,b) || a.confirmado_ts - b.confirmado_ts);
+  const l = pedidos.filter(p => p.estado === 'Aprobada' && (fEnt === 'TODOS' || (U[p.unidad_id]?.muelle || 'SIN') === fEnt) && enBusqEnt(p))
+    .sort((a,b) => (esOfCed(b) - esOfCed(a)) || ordenApert(a,b) || ordU(U[a.unidad_id] || {}) - ordU(U[b.unidad_id] || {}) || normTxt(U[a.unidad_id]?.nombre).localeCompare(normTxt(U[b.unidad_id]?.nombre)) || a.confirmado_ts - b.confirmado_ts);
   const muelles = [...new Set(UL.map(u => u.muelle || 'SIN'))].sort();
   const n = l.filter(p => sel.has(p.id)).length;
   return bloqueAvisos(a => a.tab === 'entregar') + `<section class="panel"><div class="panel-head"><div><h2>Aprobadas por entregar</h2><p class="sub">${rol.admin ? 'La confirmación más antigua primero. Filtre por muelle, marque las que salieron y regístrelas juntas.' : 'Solicitudes confirmadas que Logística CEDIS todavía no entregó, la más antigua primero. Solo consulta.'}</p></div>
@@ -1314,7 +1317,7 @@ async function leerPresupuestos(file){
 }
 function plantillaTraspasos(){
   // Formato para generar los traspasos en el sistema: una fila por material solicitado
-  const l = pedidos.filter(p => p.estado === 'Aprobada' && usaTraspaso(p)).sort((a,b) => ordenApert(a,b) || ordU(U[a.unidad_id] || {}) - ordU(U[b.unidad_id] || {}));
+  const l = pedidos.filter(p => p.estado === 'Aprobada' && usaTraspaso(p)).sort((a,b) => (esOfCed(b) - esOfCed(a)) || ordenApert(a,b) || ordU(U[a.unidad_id] || {}) - ordU(U[b.unidad_id] || {}));
   if(!l.length){ toast('No hay solicitudes por entregar.'); return; }
   const num = v => { const t = String(v ?? '').trim(); return /^\d+$/.test(t) ? +t : t; };
   const W = XL.libro(), h = W.hoja('Hoja1'), cab = {b:true}, faltan = new Set();

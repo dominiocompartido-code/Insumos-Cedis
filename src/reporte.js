@@ -2,12 +2,16 @@
 const MUELLES_R = ['DESP-01','DESP-02','DESP-03','DESP-04','DESP-05'];
 function datosDotacion(ciclo, alcance){
   const incl = p => p.estado === 'Aprobada' && cicloP(p) === ciclo && U[p.unidad_id] && (alcance === 'todo' || U[p.unidad_id].tipo === 'Sucursal');
-  const porU = {};
-  pedidos.filter(incl).forEach(p => { const m = porU[p.unidad_id] ||= {}; (p.estado === 'Entregada' && p.items_entregados ? p.items_entregados : p.items).forEach(i => { const c = +i.cantidad || 0; if(!c) return; const x = m[i.codigo] ||= {codigo:i.codigo, descripcion:M[i.codigo]?.descripcion || i.descripcion, unidad:M[i.codigo]?.unidad || i.unidad, cantidad:0}; x.cantidad += c; }); });
+  // un bloque por sala; si la misma sala o área tiene varias solicitudes de personas distintas, un bloque por solicitante con su nombre
+  const lp = pedidos.filter(incl), sols = {}; lp.forEach(p => (sols[p.unidad_id] ||= new Set()).add(normTxt(p.solicitante || '')));
+  const clave = p => sols[p.unidad_id].size > 1 ? p.unidad_id + '|' + normTxt(p.solicitante || '') : p.unidad_id;
+  const porU = {}, nomB = {};
+  lp.forEach(p => { const k = clave(p); nomB[k] = k.includes('|') ? `${U[p.unidad_id].nombre} – ${(p.solicitante || '').trim()}` : U[p.unidad_id].nombre; const m = porU[k] ||= {}; (p.estado === 'Entregada' && p.items_entregados ? p.items_entregados : p.items).forEach(i => { const c = +i.cantidad || 0; if(!c) return; const x = m[i.codigo] ||= {codigo:i.codigo, descripcion:M[i.codigo]?.descripcion || i.descripcion, unidad:M[i.codigo]?.unidad || i.unidad, cantidad:0}; x.cantidad += c; }); });
   const muelleDe = u => MUELLES_R.includes(u.muelle) ? u.muelle : 'SIN MUELLE';
   const ordM = m => m === 'SIN MUELLE' ? 99 : MUELLES_R.indexOf(m);
-  const unidades = Object.keys(porU).map(id => U[id]).sort((a,b) => ordM(muelleDe(a)) - ordM(muelleDe(b)) || ordU(a) - ordU(b) || a.nombre.localeCompare(b.nombre,'es'))
-    .map(u => ({u, muelle:muelleDe(u), items:Object.values(porU[u.id]).sort((a,b) => a.descripcion.localeCompare(b.descripcion,'es'))}));
+  // oficina central y CEDIS primero; luego por muelle y número de sucursal
+  const unidades = Object.keys(porU).map(k => ({k, u:U[k.split('|')[0]]})).sort((a,b) => (ordU(a.u) < 0 ? ordU(a.u) : 0) - (ordU(b.u) < 0 ? ordU(b.u) : 0) || ordM(muelleDe(a.u)) - ordM(muelleDe(b.u)) || ordU(a.u) - ordU(b.u) || nomB[a.k].localeCompare(nomB[b.k],'es'))
+    .map(({k, u}) => ({u, nombre:nomB[k], muelle:muelleDe(u), items:Object.values(porU[k]).sort((a,b) => a.descripcion.localeCompare(b.descripcion,'es'))}));
   return unidades;
 }
 const numSi = v => (v != null && /^[1-9]\d*$/.test(String(v))) ? +v : (v || '');
@@ -28,7 +32,7 @@ function libroDotacion(ciclo, alcance){
       const prim = k === 0, ult = k === n - 1, bt = prim ? 'medium' : 'thin', bb = ult ? 'medium' : 'thin';
       const s = (h, extra = {}) => ({sz:9, fill, h, v:'center', bt, bb, bl:'thin', br:'thin', ...extra});
       h1.set(r, 0, numSi(b.u.codigo_sala), s('center', {b:prim}));
-      h1.set(r, 1, b.u.nombre, s('left', {b:prim}));
+      h1.set(r, 1, b.nombre, s('left', {b:prim}));
       h1.set(r, 2, b.u.regional || '', s('left'));
       h1.set(r, 3, numSi(it.codigo), s('center'));
       h1.set(r, 4, it.descripcion, s('left'));
@@ -71,7 +75,7 @@ function libroDotacion(ciclo, alcance){
   indice.forEach((x, k) => {
     const rr = k + 1, fill = k % 2 ? 'FFFFFFFF' : GRIS, s = (h, ex = {}) => ({sz:9, fill, h, v:'center', bt:'thin', bb:'thin', bl:'thin', br:'thin', ...ex});
     h3.set(rr, 0, x.pag, s('center', {b:true})); h3.set(rr, 1, x.b.muelle, s('center')); h3.set(rr, 2, numSi(x.b.u.codigo_sala), s('center'));
-    h3.set(rr, 3, x.b.u.nombre, s('left')); h3.set(rr, 4, x.b.u.regional || '', s('left')); h3.set(rr, 5, x.items, s('center')); h3.set(rr, 6, x.total, s('center')); h3.set(rr, 7, '', s('left'));
+    h3.set(rr, 3, x.b.nombre, s('left')); h3.set(rr, 4, x.b.u.regional || '', s('left')); h3.set(rr, 5, x.items, s('center')); h3.set(rr, 6, x.total, s('center')); h3.set(rr, 7, '', s('left'));
     h3.altos[rr] = 13.5;
   });
   h3.freeze = 1; h3.titulos = ['1','1']; h3.ajustarAncho = true;
