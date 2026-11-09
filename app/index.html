@@ -1018,8 +1018,20 @@ function libroDotacion(ciclo, alcance){
   const h1 = W.hoja('Dotacion Sucursales');
   ['Cod. Sucursal','Sucursal','Regional','Cod. Insumo','Item','U.M.','Cantidad','Muelle','Responsable'].forEach((t, c) => h1.set(0, c, t, cab));
   h1.altos[0] = 26.1; [8,27.4,10,8,31,5.4,8,8.4,16.4].forEach((w, c) => h1.anchos[c] = w);
-  const POR_PAG = 50; let r = 1, enPag = 0, pag = 1; const indice = [];
-  bloques.forEach((b, bi) => {
+  // filas por hoja carta: (alto imprimible 698 pt ÷ escala 82 % − título 26 pt) ÷ 15,95 pt por fila ≈ 51
+  const POR_PAG = 51; let r = 1, enPag = 0, pag = 1; const indice = [];
+  // llenar cada hoja: si la siguiente sala no entra en el espacio que queda, se adelanta otra que sí entre
+  // (primero del mismo muelle, si no de cualquiera); ninguna sala se corta entre dos hojas
+  const orden = [], resto = bloques.slice(); let usado = 0;
+  while(resto.length){
+    const cabe = b => usado === 0 || usado + b.items.length <= POR_PAG, ult = orden[orden.length - 1], ofc = b => ordU(b.u) < 0;
+    // oficina central y CEDIS siempre antes que cualquier sucursal
+    const cand = resto.some(ofc) ? resto.map((b, k) => ofc(b) ? k : -1).filter(k => k >= 0) : resto.map((b, k) => k);
+    let i = cand.find(k => cabe(resto[k]) && (!ult || resto[k].muelle === ult.muelle)); if(i === undefined) i = cand.find(k => cabe(resto[k])); if(i === undefined) i = -1;
+    if(i < 0){ usado = 0; continue; }
+    const b = resto.splice(i, 1)[0]; orden.push(b); usado += b.items.length; if(usado >= POR_PAG) usado = usado % POR_PAG;
+  }
+  orden.forEach((b, bi) => {
     const n = b.items.length;
     if(enPag > 0 && enPag + n > POR_PAG){ h1.cortes.push(r); pag++; enPag = 0; } // corte después de la fila r (1-based = r)
     const fill = bi % 2 === 0 ? GRIS : BLANCO, ini = r;
@@ -1038,6 +1050,8 @@ function libroDotacion(ciclo, alcance){
       h1.altos[r] = 15.95; r++; enPag++;
     });
     if(n > 1) h1.merges.push(`I${ini + 1}:I${r}`);
+    // hoja llena justo, o sala más larga que una hoja (Excel la corta sola): se cuenta la hoja y se sigue en la siguiente
+    if(enPag >= POR_PAG){ const extra = Math.floor(enPag / POR_PAG); enPag %= POR_PAG; if(enPag === 0){ h1.cortes.push(r - 1 + 1); pag += extra; } else pag += extra; }
     indice.push({pag, b, items:n, total:b.items.reduce((a,i) => a + i.cantidad, 0)});
   });
   h1.freeze = 1; h1.titulos = ['1','1']; h1.escala = 82; if(r > 1) h1.filtro = `A1:H${r}`;
