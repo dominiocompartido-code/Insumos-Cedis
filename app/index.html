@@ -292,6 +292,8 @@ tr.marcada td{background:color-mix(in srgb, var(--brand) 18%, var(--surface)) !i
 .plan-tr{display:grid;gap:12px;max-height:58vh;overflow:auto;padding-right:4px}.plan-ped{border:1px solid var(--line);border-radius:10px;padding:10px}
 .plan-cab{display:flex;flex-wrap:wrap;gap:8px;align-items:baseline;margin-bottom:6px}.plan-cab .sub:last-child{margin-left:auto}
 .plan-t{width:100%;border-collapse:collapse;font-size:13px}.plan-t th,.plan-t td{padding:4px 6px;border-bottom:1px solid var(--line);text-align:left}.plan-t .num{text-align:right}
+.plan-t tr.no-alc td{background:#fdecea}.alc{font-weight:700;font-size:12px;white-space:nowrap}.alc.ok{color:#1e7b3a}.alc.no{color:var(--danger)}
+.notice.plan-alerta{border-color:#e8a29d;background:#fdf1f0}.notice.plan-ok{border-color:#9dd1a8;background:#eef8f0}
 .plan-q{width:76px;text-align:right;padding:4px 6px}.plan-q.cambio{background:#fff4d6;border-color:#e0a800;font-weight:700}.plan-q.err{border-color:var(--danger);background:#fde8e6}
 .modal-head{display:flex;justify-content:space-between;align-items:center;gap:8px;border-bottom:1px solid var(--line);padding-bottom:10px}
 .modal-head h3{font-size:14px;color:var(--ink)}
@@ -2435,27 +2437,47 @@ function plantillaTraspasos(lista){
 }
 // Planilla de traspaso desde Por entregar: de las seleccionadas (o de todas las que se ven), con cantidades editables
 const visiblesEnt = p => p.estado === 'Aprobada' && (fEnt === 'TODOS' || (U[p.unidad_id]?.muelle || 'SIN') === fEnt) && enBusqEnt(p);
-let planTr = null;
-function abrirPlanTras(){
+let planTr = null, STK = {};
+// stock del almacén de cada solicitud (clave almacén|código), para ver si alcanza lo que se va a traspasar
+async function cargarStockPlan(alms){ STK = {}; for(const al of alms){ try{ const {data} = await sb.from('inventario_alm').select('*').eq('almacen', al); (data || []).filter(r => (r.almacen || 'SCZ') === al).forEach(r => STK[al + '|' + r.codigo] = +r.stock || 0); }catch(e){} } }
+// recorre las líneas en el orden de la planilla y va restando del stock: cada línea alcanza o no con lo que queda
+function revisarStockPlan(){
+  const usado = {}, falt = {}, fq = n => (+n).toLocaleString('es-BO', {maximumFractionDigits:2});
+  document.querySelectorAll('.plan-q').forEach(inp => { const al = inp.dataset.alm, k = al + '|' + inp.dataset.cod, st = STK[k] ?? 0, q = Math.max(0, +inp.value || 0);
+    const antes = usado[k] || 0; usado[k] = antes + q; const queda = st - antes, ok = q <= queda, cel = inp.closest('tr').querySelector('.plan-st');
+    inp.closest('tr').classList.toggle('no-alc', q > 0 && !ok);
+    if(cel) cel.innerHTML = q === 0 ? '<span class="sub">–</span>' : ok ? `<span class="alc ok">✔ alcanza</span><div class="sub" style="margin:0">quedan ${fq(queda - q)}</div>` : `<span class="alc no">✘ faltan ${fq(q - Math.max(0, queda))}</span><div class="sub" style="margin:0">disponible ${fq(Math.max(0, queda))}</div>`;
+    if(q > 0 && !ok){ const f = falt[k] ||= {cod:inp.dataset.cod, al, desc:inp.dataset.desc, st, tot:0, sol:new Set()}; f.sol.add(inp.dataset.ped); } });
+  Object.keys(falt).forEach(k => falt[k].tot = usado[k]);
+  const l = Object.values(falt).sort((a, b) => (b.tot - b.st) - (a.tot - a.st)), box = $('planStock'); if(!box) return;
+  box.className = 'notice ' + (l.length ? 'plan-alerta' : 'plan-ok');
+  box.innerHTML = l.length ? `<strong>No alcanza el stock en sistema para ${plural(l.length, 'material', 'materiales')}:</strong>
+    <table class="plan-t" style="margin-top:6px"><thead><tr><th>Código</th><th>Insumo</th>${multiAlm() ? '<th>Almacén</th>' : ''}<th class="num">Stock</th><th class="num">A enviar</th><th class="num">Falta</th><th>Solicitudes sin stock</th></tr></thead><tbody>${l.map(f => `<tr><td>${esc(f.cod)}</td><td>${esc(f.desc)}</td>${multiAlm() ? `<td>${esc(f.al)}</td>` : ''}<td class="num">${fq(f.st)}</td><td class="num">${fq(f.tot)}</td><td class="num"><strong>${fq(f.tot - f.st)}</strong></td><td>${[...f.sol].map(esc).join(', ')}</td></tr>`).join('')}</tbody></table>
+    <div class="sub" style="margin:6px 0 0">El traspaso de esas líneas no se podrá generar por sistema. Baje la cantidad (o póngala en 0) o cargue el inventario actualizado.</div><div class="row" style="margin-top:6px"><button type="button" class="btn btn-sm" id="btnPlanAjStock">Ajustar a lo disponible</button></div>`
+    : '<strong>✔ Alcanza el stock en sistema para todo lo que va en la planilla.</strong>';
+}
+async function abrirPlanTras(){
   const vis = pedidos.filter(visiblesEnt), elegidas = vis.filter(p => sel.has(p.id)), base = elegidas.length ? elegidas : vis;
   const l = base.filter(usaTraspaso).sort((a,b) => (esOfCed(b) - esOfCed(a)) || ordenApert(a,b) || ordU(U[a.unidad_id] || {}) - ordU(U[b.unidad_id] || {}));
   const sinT = base.filter(p => !usaTraspaso(p));
   if(!l.length){ toast(sinT.length ? 'Las solicitudes elegidas son del CEDIS y no llevan traspaso.' : 'No hay solicitudes por entregar.'); return; }
   planTr = l.map(p => p.id);
+  await cargarStockPlan([...new Set(l.map(p => almDeU(p.unidad_id)))]);
   const orig = (p, cod) => (p.items_original || []).find(i => i.codigo === cod)?.cantidad, fq = n => (+n).toLocaleString("es-BO", {maximumFractionDigits:2});
   $('detTitulo').textContent = `Planilla de traspaso · ${plural(l.length, 'solicitud', 'solicitudes')}${elegidas.length ? ' seleccionadas' : ''}`;
   $('detBody').innerHTML = `<p class="sub" style="margin:0">${elegidas.length ? 'Solo de las solicitudes que marcó.' : 'No marcó ninguna: van todas las que se ven en la lista (según el muelle y la búsqueda).'} Puede cambiar la cantidad a enviar de cualquier material; con 0 no sale en la planilla. Los cambios quedan guardados en la solicitud (se ve lo pedido y lo ajustado) y se usan al registrar la entrega.</p>
     ${sinT.length ? `<div class="notice">No llevan traspaso (áreas del CEDIS sin código de sala): ${sinT.map(p => esc(U[p.unidad_id]?.nombre || p.unidad_id)).join(', ')}.</div>` : ''}
+    <div id="planStock" class="notice"></div>
     <div class="plan-tr">${l.map(p => { const u = U[p.unidad_id] || {}, des = u.codigo_sala || (u.tipo === 'Oficina central' ? '05486' : '');
       return `<div class="plan-ped"><div class="plan-cab"><strong>${esc(p.codigo)}</strong> · ${esc(u.nombre || p.unidad_id)}${p.solicitante ? ` <span class="sub">(${esc(p.solicitante)})</span>` : ''}<span class="sub">Destino ${des ? esc(des) : '<b style="color:var(--danger)">sin código</b>'}</span></div>
-        <table class="plan-t"><thead><tr><th>Código</th><th>Insumo</th><th class="num">U.M.</th><th class="num">Pedido</th><th class="num">A enviar</th></tr></thead><tbody>${p.items.map(i => { const o = orig(p, i.codigo);
+        <table class="plan-t"><thead><tr><th>Código</th><th>Insumo</th><th class="num">U.M.</th><th class="num">Pedido</th><th class="num">A enviar</th><th>Stock en sistema</th></tr></thead><tbody>${p.items.map(i => { const o = orig(p, i.codigo);
           return `<tr><td>${esc(i.codigo)}</td><td>${esc(i.descripcion)}</td><td class="num">${esc(i.unidad || '')}</td><td class="num">${fq(o != null ? o : i.cantidad)}${o != null && +o !== +i.cantidad ? '<div class="sub" style="margin:0">ajustado</div>' : ''}</td>
-            <td class="num"><input type="number" min="0" step="1" class="plan-q" data-pid="${p.id}" data-cod="${esc(i.codigo)}" data-ant="${+i.cantidad}" value="${+i.cantidad}"></td></tr>`; }).join('')}</tbody></table></div>`; }).join('')}</div>
+            <td class="num"><input type="number" min="0" step="1" class="plan-q" data-pid="${p.id}" data-ped="${esc(p.codigo)}" data-alm="${esc(almDeU(p.unidad_id))}" data-desc="${esc(i.descripcion)}" data-cod="${esc(i.codigo)}" data-ant="${+i.cantidad}" value="${+i.cantidad}"></td><td class="plan-st"></td></tr>`; }).join('')}</tbody></table></div>`; }).join('')}</div>
     <label class="f">Motivo del ajuste (si cambia cantidades)<input id="planMotivo" maxlength="200" placeholder="Ej.: sin stock suficiente, ajustado por Cedi Scz"></label>
     <div class="row right"><button class="btn" data-close="mDet">Cancelar</button><button class="btn btn-primary" id="btnPlanGen">⬇ Generar planilla</button></div>`;
-  $('mDet').hidden = false;
+  $('mDet').hidden = false; revisarStockPlan();
 }
-document.addEventListener('input', e => { if(e.target.classList?.contains('plan-q')) e.target.classList.toggle('cambio', +e.target.value !== +e.target.dataset.ant); });
+document.addEventListener('input', e => { if(e.target.classList?.contains('plan-q')){ e.target.classList.toggle('cambio', +e.target.value !== +e.target.dataset.ant); revisarStockPlan(); } });
 async function generarPlanTras(btn){
   const cambios = {}; let malo = false;
   document.querySelectorAll('.plan-q').forEach(inp => { const v = inp.value.trim(), q = +v;
@@ -2599,6 +2621,8 @@ document.addEventListener('click', e => {
   if(e.target.id === 'btnSubirTrasp') $('fileTrasp').click();
   if(e.target.id === 'btnPlantTrasp') abrirPlanTras();
   if(e.target.id === 'btnPlanGen') generarPlanTras(e.target);
+  if(e.target.id === 'btnPlanAjStock'){ const usado = {}; document.querySelectorAll('.plan-q').forEach(inp => { const k = inp.dataset.alm + '|' + inp.dataset.cod, st = STK[k] ?? 0, q = Math.max(0, +inp.value || 0), antes = usado[k] || 0, n = Math.max(0, Math.min(q, st - antes)); usado[k] = antes + n; if(n !== q){ inp.value = n; inp.classList.toggle('cambio', n !== +inp.dataset.ant); } });
+    if(!$('planMotivo').value.trim()) $('planMotivo').value = 'sin stock suficiente en almacén'; revisarStockPlan(); }
   if(e.target.id === 'btnPresPlant') plantillaPresupuestos();
   if(e.target.id === 'btnPresSubir') $('filePres').click();
   if(e.target.id === 'trAplicar') aplicarTraspasos(e.target);
