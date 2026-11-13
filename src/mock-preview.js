@@ -75,6 +75,7 @@
       const p = pedidos.find(x => x.id === a?.p_id); const now = iso(Date.now());
       if(name === 'confirmar_pedido'){ if(p.estado !== 'Enviada') return err('El pedido ya no está pendiente'); if(JSON.stringify(p.items) !== JSON.stringify(a.p_items)) p.items_original = p.items_original || p.items; p.items = a.p_items; p.confirmado_ts = now; tras(p); p.nota = (a.p_nota || '').trim() || null; }
       if(name === 'rechazar_pedido'){ if(p.estado === 'Confirmada'){ p.aprobado_ts = now; p.aprobado_por = 'helen'; } p.estado = 'Rechazada'; p.confirmado_ts = p.confirmado_ts || now; p.motivo_rechazo = a.p_motivo; }
+      if(name === 'ajustar_cantidades'){ if(p.estado !== 'Aprobada') return err('Solo se ajustan solicitudes aprobadas'); p.items_original = p.items_original || p.items.map(i => ({...i})); p.items = p.items.map(i => a.p_cant[i.codigo] != null ? {...i, cantidad:+a.p_cant[i.codigo]} : i); return res(null); }
       if(name === 'entregar_pedido'){ p.estado = 'Entregada'; p.entregado_ts = now; p.recibido_por = (a.p_recibido || '').trim() || null; }
       if(name === 'confirmar_varios'){ let c = 0; a.p_ids.forEach(id => { const q = pedidos.find(x => x.id === id); if(q && q.estado === 'Enviada'){ q.confirmado_ts = now; tras(q); c++; } }); return res(c); }
       if(name === 'editar_pedido'){ if(p.estado !== 'Enviada') return err('Solo se puede editar una solicitud que todavía no fue confirmada'); p.items = a.p_items; p.solicitante = a.p_solicitante; return res(null); }

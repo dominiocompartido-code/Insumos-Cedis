@@ -303,3 +303,6 @@ update public.maestro set reemplazo = '27233' where codigo = '25645';
 -- 2026-10-30: descontar inventario al entregar (trigger trg_mover_stock_entrega)
 -- Al pasar a Entregada resta del stock del almacén lo entregado (items_entregados o items); si deja de estar Entregada, lo devuelve. Históricos no se tocan.
 -- Ver función public.mover_stock_entrega()
+
+-- 2026-11-13: public.ajustar_cantidades(p_id, p_cant jsonb {codigo: cantidad}, p_nota)
+-- Logística del almacén ajusta cantidades de una solicitud Aprobada antes de generar el traspaso; guarda items_original y agrega nota.

@@ -289,6 +289,10 @@ tr.marcada td{background:color-mix(in srgb, var(--brand) 18%, var(--surface)) !i
 .modal{position:fixed;inset:0;background:var(--overlay);z-index:50;display:flex;align-items:flex-start;justify-content:center;padding:36px 16px;overflow-y:auto}
 .modal-card{background:var(--surface);border:1px solid var(--line);border-radius:12px;width:100%;max-width:940px;padding:20px;display:grid;gap:14px}
 .modal-card.sm{max-width:440px}
+.plan-tr{display:grid;gap:12px;max-height:58vh;overflow:auto;padding-right:4px}.plan-ped{border:1px solid var(--line);border-radius:10px;padding:10px}
+.plan-cab{display:flex;flex-wrap:wrap;gap:8px;align-items:baseline;margin-bottom:6px}.plan-cab .sub:last-child{margin-left:auto}
+.plan-t{width:100%;border-collapse:collapse;font-size:13px}.plan-t th,.plan-t td{padding:4px 6px;border-bottom:1px solid var(--line);text-align:left}.plan-t .num{text-align:right}
+.plan-q{width:76px;text-align:right;padding:4px 6px}.plan-q.cambio{background:#fff4d6;border-color:#e0a800;font-weight:700}.plan-q.err{border-color:var(--danger);background:#fde8e6}
 .modal-head{display:flex;justify-content:space-between;align-items:center;gap:8px;border-bottom:1px solid var(--line);padding-bottom:10px}
 .modal-head h3{font-size:14px;color:var(--ink)}
 .x{background:none;border:0;font-size:22px;color:var(--muted);cursor:pointer;line-height:1}
@@ -1802,7 +1806,7 @@ function vEntregar(){
   const muelles = [...new Set(UL.map(u => u.muelle || 'SIN'))].sort();
   const n = l.filter(p => sel.has(p.id)).length;
   return bloqueAvisos(a => a.tab === 'entregar') + `<section class="panel"><div class="panel-head"><div><h2>Aprobadas por entregar</h2><p class="sub">${rol.admin ? 'La confirmación más antigua primero. Filtre por muelle, marque las que salieron y regístrelas juntas.' : 'Solicitudes confirmadas que Logística CEDIS todavía no entregó, la más antigua primero. Solo consulta.'}</p></div>
-    <div class="row">${rol.admin ? '' : '<!--'}<button class="btn btn-sm" id="btnPlantTrasp" title="Excel ORIGEN · DESTINO · SKU · CANTIDAD · PRIORIDAD con los materiales de las solicitudes por entregar, para generar los traspasos">⬇ Plantilla de traspasos</button><button class="btn btn-sm btn-primary" id="btnSubirTrasp">⬆ Subir traspasos (Excel)</button><input type="file" id="fileTrasp" accept=".xlsx,.xls,.csv" hidden>${rol.admin ? '' : '-->'}
+    <div class="row">${rol.admin ? '' : '<!--'}<button class="btn btn-sm" id="btnPlantTrasp" title="Excel ORIGEN · DESTINO · SKU · CANTIDAD · PRIORIDAD de las solicitudes marcadas (o de todas las que se ven). Antes de descargar puede ajustar cantidades.">⬇ Planilla de traspaso${n ? ` (${n})` : ''}</button><button class="btn btn-sm btn-primary" id="btnSubirTrasp">⬆ Subir traspasos (Excel)</button><input type="file" id="fileTrasp" accept=".xlsx,.xls,.csv" hidden>${rol.admin ? '' : '-->'}
     <input id="fEntQ" placeholder="Buscar sala, N° o traspaso…" value="${esc(fEntQ)}" style="width:220px" autocomplete="off">
     <select id="fEnt" style="width:auto"><option value="TODOS">Todos los muelles</option>${muelles.map(m => `<option value="${m}" ${fEnt === m ? 'selected' : ''}>${m === 'SIN' ? 'Sin muelle' : m}</option>`).join('')}</select></div></div>
     ${rol.admin ? '' : '<!--'}<div class="acciones ${n ? 'on' : ''}"><span><strong>${n}</strong> seleccionadas</span>${n ? '<button class="btn btn-sm" id="btnLimpiarSel">Quitar selección</button>' : ''}<input id="recVarios" maxlength="100" placeholder="Recibido por (opcional)" style="max-width:220px"><button class="btn btn-ok" id="btnEntVarios" ${n ? '' : 'disabled'}>Marcar entregadas</button></div>${rol.admin ? '' : '-->'}
@@ -2413,9 +2417,9 @@ async function leerPresupuestos(file){
     toast(`Presupuesto actualizado en ${plural(res.length, 'sala o área', 'salas y áreas')}.`); render();
   }catch(e){ toast(errMsg(e)); }
 }
-function plantillaTraspasos(){
-  // Formato para generar los traspasos en el sistema: una fila por material solicitado
-  const l = pedidos.filter(p => p.estado === 'Aprobada' && usaTraspaso(p)).sort((a,b) => (esOfCed(b) - esOfCed(a)) || ordenApert(a,b) || ordU(U[a.unidad_id] || {}) - ordU(U[b.unidad_id] || {}));
+function plantillaTraspasos(lista){
+  // Formato para generar los traspasos en el sistema: una fila por material solicitado (de la lista recibida o de todas las por entregar)
+  const l = (lista || pedidos.filter(p => p.estado === 'Aprobada' && usaTraspaso(p))).sort((a,b) => (esOfCed(b) - esOfCed(a)) || ordenApert(a,b) || ordU(U[a.unidad_id] || {}) - ordU(U[b.unidad_id] || {}));
   if(!l.length){ toast('No hay solicitudes por entregar.'); return; }
   const num = v => { const t = String(v ?? '').trim(); return /^\d+$/.test(t) ? +t : t; };
   const W = XL.libro(), h = W.hoja('Hoja1'), cab = {b:true}, faltan = new Set();
@@ -2428,6 +2432,47 @@ function plantillaTraspasos(){
       h.set(r, 0, num(ori)); h.set(r, 1, num(des)); h.set(r, 2, num(i.codigo)); h.set(r, 3, +i.cantidad); h.set(r, 4, 100); r++; }); });
   descargar(W.generar(), `TRAS_INSUMOS_${hoyISO()}.xlsx`);
   if(faltan.size) toast(`Sin código de sala (DESTINO vacío): ${[...faltan].join(', ')}`);
+}
+// Planilla de traspaso desde Por entregar: de las seleccionadas (o de todas las que se ven), con cantidades editables
+const visiblesEnt = p => p.estado === 'Aprobada' && (fEnt === 'TODOS' || (U[p.unidad_id]?.muelle || 'SIN') === fEnt) && enBusqEnt(p);
+let planTr = null;
+function abrirPlanTras(){
+  const vis = pedidos.filter(visiblesEnt), elegidas = vis.filter(p => sel.has(p.id)), base = elegidas.length ? elegidas : vis;
+  const l = base.filter(usaTraspaso).sort((a,b) => (esOfCed(b) - esOfCed(a)) || ordenApert(a,b) || ordU(U[a.unidad_id] || {}) - ordU(U[b.unidad_id] || {}));
+  const sinT = base.filter(p => !usaTraspaso(p));
+  if(!l.length){ toast(sinT.length ? 'Las solicitudes elegidas son del CEDIS y no llevan traspaso.' : 'No hay solicitudes por entregar.'); return; }
+  planTr = l.map(p => p.id);
+  const orig = (p, cod) => (p.items_original || []).find(i => i.codigo === cod)?.cantidad, fq = n => (+n).toLocaleString("es-BO", {maximumFractionDigits:2});
+  $('detTitulo').textContent = `Planilla de traspaso · ${plural(l.length, 'solicitud', 'solicitudes')}${elegidas.length ? ' seleccionadas' : ''}`;
+  $('detBody').innerHTML = `<p class="sub" style="margin:0">${elegidas.length ? 'Solo de las solicitudes que marcó.' : 'No marcó ninguna: van todas las que se ven en la lista (según el muelle y la búsqueda).'} Puede cambiar la cantidad a enviar de cualquier material; con 0 no sale en la planilla. Los cambios quedan guardados en la solicitud (se ve lo pedido y lo ajustado) y se usan al registrar la entrega.</p>
+    ${sinT.length ? `<div class="notice">No llevan traspaso (áreas del CEDIS sin código de sala): ${sinT.map(p => esc(U[p.unidad_id]?.nombre || p.unidad_id)).join(', ')}.</div>` : ''}
+    <div class="plan-tr">${l.map(p => { const u = U[p.unidad_id] || {}, des = u.codigo_sala || (u.tipo === 'Oficina central' ? '05486' : '');
+      return `<div class="plan-ped"><div class="plan-cab"><strong>${esc(p.codigo)}</strong> · ${esc(u.nombre || p.unidad_id)}${p.solicitante ? ` <span class="sub">(${esc(p.solicitante)})</span>` : ''}<span class="sub">Destino ${des ? esc(des) : '<b style="color:var(--danger)">sin código</b>'}</span></div>
+        <table class="plan-t"><thead><tr><th>Código</th><th>Insumo</th><th class="num">U.M.</th><th class="num">Pedido</th><th class="num">A enviar</th></tr></thead><tbody>${p.items.map(i => { const o = orig(p, i.codigo);
+          return `<tr><td>${esc(i.codigo)}</td><td>${esc(i.descripcion)}</td><td class="num">${esc(i.unidad || '')}</td><td class="num">${fq(o != null ? o : i.cantidad)}${o != null && +o !== +i.cantidad ? '<div class="sub" style="margin:0">ajustado</div>' : ''}</td>
+            <td class="num"><input type="number" min="0" step="1" class="plan-q" data-pid="${p.id}" data-cod="${esc(i.codigo)}" data-ant="${+i.cantidad}" value="${+i.cantidad}"></td></tr>`; }).join('')}</tbody></table></div>`; }).join('')}</div>
+    <label class="f">Motivo del ajuste (si cambia cantidades)<input id="planMotivo" maxlength="200" placeholder="Ej.: sin stock suficiente, ajustado por Cedi Scz"></label>
+    <div class="row right"><button class="btn" data-close="mDet">Cancelar</button><button class="btn btn-primary" id="btnPlanGen">⬇ Generar planilla</button></div>`;
+  $('mDet').hidden = false;
+}
+document.addEventListener('input', e => { if(e.target.classList?.contains('plan-q')) e.target.classList.toggle('cambio', +e.target.value !== +e.target.dataset.ant); });
+async function generarPlanTras(btn){
+  const cambios = {}; let malo = false;
+  document.querySelectorAll('.plan-q').forEach(inp => { const v = inp.value.trim(), q = +v;
+    if(v === '' || !(q >= 0) || !Number.isFinite(q)){ malo = true; inp.classList.add('err'); return; }
+    if(q !== +inp.dataset.ant) (cambios[inp.dataset.pid] ||= {})[inp.dataset.cod] = q; });
+  if(malo){ toast('Revise las cantidades marcadas en rojo.'); return; }
+  const ids = Object.keys(cambios), mot = $('planMotivo').value.trim();
+  if(ids.length && !(await confirmar(`Se guardarán los cambios de cantidad en ${plural(ids.length, 'solicitud', 'solicitudes')} y se usarán al entregar. ¿Continuar?`, {si:'Guardar y generar', tono:'btn-primary'}))) return;
+  btn.disabled = true; const fallos = [];
+  for(const id of ids){ const {error} = await sb.rpc('ajustar_cantidades', {p_id:id, p_cant:cambios[id], p_nota:mot ? `Cantidades ajustadas: ${mot}` : null});
+    const p = pedidos.find(x => x.id === id);
+    if(error){ fallos.push(`${p?.codigo}: ${errMsg(error)}`); continue; }
+    if(p){ p.items_original ||= p.items.map(i => ({...i})); p.items = p.items.map(i => cambios[id][i.codigo] != null ? {...i, cantidad:cambios[id][i.codigo]} : i); } }
+  btn.disabled = false;
+  if(fallos.length){ toast('No se pudo guardar: ' + fallos.join(' · ')); return; }
+  plantillaTraspasos(pedidos.filter(p => planTr.includes(p.id)));
+  $('mDet').hidden = true; if(ids.length) cargarPedidos();
 }
 function cargarLibXLSX(){
   if(window.XLSX) return Promise.resolve();
@@ -2552,7 +2597,8 @@ document.addEventListener('change', e => {
 });
 document.addEventListener('click', e => {
   if(e.target.id === 'btnSubirTrasp') $('fileTrasp').click();
-  if(e.target.id === 'btnPlantTrasp') plantillaTraspasos();
+  if(e.target.id === 'btnPlantTrasp') abrirPlanTras();
+  if(e.target.id === 'btnPlanGen') generarPlanTras(e.target);
   if(e.target.id === 'btnPresPlant') plantillaPresupuestos();
   if(e.target.id === 'btnPresSubir') $('filePres').click();
   if(e.target.id === 'trAplicar') aplicarTraspasos(e.target);
