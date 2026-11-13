@@ -1315,7 +1315,7 @@ async function leerPresupuestos(file){
     toast(`Presupuesto actualizado en ${plural(res.length, 'sala o área', 'salas y áreas')}.`); render();
   }catch(e){ toast(errMsg(e)); }
 }
-function plantillaTraspasos(lista){
+function plantillaTraspasos(lista, asig){
   // Formato para generar los traspasos en el sistema: una fila por material solicitado (de la lista recibida o de todas las por entregar)
   const l = (lista || pedidos.filter(p => p.estado === 'Aprobada' && usaTraspaso(p))).sort((a,b) => (esOfCed(b) - esOfCed(a)) || ordenApert(a,b) || ordU(U[a.unidad_id] || {}) - ordU(U[b.unidad_id] || {}));
   if(!l.length){ toast('No hay solicitudes por entregar.'); return; }
@@ -1327,7 +1327,8 @@ function plantillaTraspasos(lista){
   l.forEach(p => { const u = U[p.unidad_id] || {}, ori = ALMS.find(a => a.id === almDeU(p.unidad_id))?.codigo || '';
     const des = u.codigo_sala || (u.tipo === 'Oficina central' ? '05486' : ''); if(!des) faltan.add(u.nombre || p.unidad_id);
     p.items.forEach(i => { if(!(+i.cantidad > 0)) return;
-      h.set(r, 0, num(ori)); h.set(r, 1, num(des)); h.set(r, 2, num(i.codigo)); h.set(r, 3, +i.cantidad); h.set(r, 4, 100); r++; }); });
+      (asig?.[p.id + '|' + i.codigo] || [{cod:i.codigo, q:+i.cantidad}]).forEach(a => { if(!(a.q > 0)) return;
+        h.set(r, 0, num(ori)); h.set(r, 1, num(des)); h.set(r, 2, num(a.cod)); h.set(r, 3, a.q); h.set(r, 4, 100); r++; }); }); });
   descargar(W.generar(), `TRAS_INSUMOS_${hoyISO()}.xlsx`);
   if(faltan.size) toast(`Sin código de sala (DESTINO vacío): ${[...faltan].join(', ')}`);
 }
@@ -1337,14 +1338,24 @@ let planTr = null, STK = {};
 // stock del almacén de cada solicitud (clave almacén|código), para ver si alcanza lo que se va a traspasar
 async function cargarStockPlan(alms){ STK = {}; for(const al of alms){ try{ const {data} = await sb.from('inventario_alm').select('*').eq('almacen', al); (data || []).filter(r => (r.almacen || 'SCZ') === al).forEach(r => STK[al + '|' + r.codigo] = +r.stock || 0); }catch(e){} } }
 // recorre las líneas en el orden de la planilla y va restando del stock: cada línea alcanza o no con lo que queda
+// materiales equivalentes (maestro.equiv): si no hay stock del pedido se usa el del otro
+const equivs = cod => { const g = M[cod]?.equiv; return g ? ML.filter(m => m.equiv === g && m.codigo !== cod).map(m => m.codigo) : []; };
+let PLAN_ASIG = {};
 function revisarStockPlan(){
-  const usado = {}, falt = {}, fq = n => (+n).toLocaleString('es-BO', {maximumFractionDigits:2});
-  document.querySelectorAll('.plan-q').forEach(inp => { const al = inp.dataset.alm, k = al + '|' + inp.dataset.cod, st = STK[k] ?? 0, q = Math.max(0, +inp.value || 0);
-    const antes = usado[k] || 0; usado[k] = antes + q; const queda = st - antes, ok = q <= queda, cel = inp.closest('tr').querySelector('.plan-st');
+  const usado = {}, falt = {}, fq = n => (+n).toLocaleString('es-BO', {maximumFractionDigits:2}); PLAN_ASIG = {};
+  const libre = (al, c) => (STK[al + '|' + c] ?? 0) - (usado[al + '|' + c] || 0);
+  document.querySelectorAll('.plan-q').forEach(inp => { const al = inp.dataset.alm, cod = inp.dataset.cod, k = al + '|' + cod, st = STK[k] ?? 0, q = Math.max(0, +inp.value || 0);
+    // primero del mismo código; lo que falte, de sus equivalentes (el de más stock primero)
+    const asig = []; let rest = q; const tomar = c => { const t = Math.max(0, Math.min(rest, libre(al, c))); if(t > 0){ asig.push({cod:c, q:t}); usado[al + '|' + c] = (usado[al + '|' + c] || 0) + t; rest -= t; } };
+    tomar(cod); equivs(cod).sort((a, b) => libre(al, b) - libre(al, a)).forEach(c => rest > 0 && tomar(c));
+    if(rest > 0){ asig.push({cod, q:rest}); usado[k] = (usado[k] || 0) + rest; }
+    PLAN_ASIG[inp.dataset.pid + '|' + cod] = asig;
+    const ok = rest <= 0, otros = asig.filter(a => a.cod !== cod), cel = inp.closest('tr').querySelector('.plan-st');
     inp.closest('tr').classList.toggle('no-alc', q > 0 && !ok);
-    if(cel) cel.innerHTML = q === 0 ? '<span class="sub">–</span>' : ok ? `<span class="alc ok">✔ alcanza</span><div class="sub" style="margin:0">quedan ${fq(queda - q)}</div>` : `<span class="alc no">✘ faltan ${fq(q - Math.max(0, queda))}</span><div class="sub" style="margin:0">disponible ${fq(Math.max(0, queda))}</div>`;
-    if(q > 0 && !ok){ const f = falt[k] ||= {cod:inp.dataset.cod, al, desc:inp.dataset.desc, st, tot:0, sol:new Set()}; f.sol.add(inp.dataset.ped); } });
-  Object.keys(falt).forEach(k => falt[k].tot = usado[k]);
+    if(cel) cel.innerHTML = q === 0 ? '<span class="sub">–</span>' : ok ? `<span class="alc ok">✔ alcanza</span>${otros.length ? `<div class="sub" style="margin:0;color:#8a5a00">${otros.map(a => `${fq(a.q)} con ${esc(a.cod)} (${esc(M[a.cod]?.descripcion || '')})`).join(', ')}</div>` : `<div class="sub" style="margin:0">quedan ${fq(Math.max(0, libre(al, cod)))}</div>`}`
+      : `<span class="alc no">✘ faltan ${fq(rest)}</span><div class="sub" style="margin:0">disponible ${fq(q - rest)}${equivs(cod).length ? ' contando equivalentes' : ''}</div>`;
+    if(q > 0 && !ok){ const f = falt[k] ||= {cod, al, desc:inp.dataset.desc, st:[cod, ...equivs(cod)].reduce((a, c) => a + (STK[al + '|' + c] ?? 0), 0), tot:0, sol:new Set()}; f.sol.add(inp.dataset.ped); } });
+  Object.keys(falt).forEach(k => { const f = falt[k]; f.tot = [f.cod, ...equivs(f.cod)].reduce((a, c) => a + (usado[f.al + '|' + c] || 0), 0); });
   const l = Object.values(falt).sort((a, b) => (b.tot - b.st) - (a.tot - a.st)), box = $('planStock'); if(!box) return;
   box.className = 'notice ' + (l.length ? 'plan-alerta' : 'plan-ok');
   box.innerHTML = l.length ? `<strong>No alcanza el stock en sistema para ${plural(l.length, 'material', 'materiales')}:</strong>
@@ -1389,7 +1400,7 @@ async function generarPlanTras(btn){
     if(p){ p.items_original ||= p.items.map(i => ({...i})); p.items = p.items.map(i => cambios[id][i.codigo] != null ? {...i, cantidad:cambios[id][i.codigo]} : i); } }
   btn.disabled = false;
   if(fallos.length){ toast('No se pudo guardar: ' + fallos.join(' · ')); return; }
-  plantillaTraspasos(pedidos.filter(p => planTr.includes(p.id)));
+  revisarStockPlan(); plantillaTraspasos(pedidos.filter(p => planTr.includes(p.id)), PLAN_ASIG);
   $('mDet').hidden = true; if(ids.length) cargarPedidos();
 }
 function cargarLibXLSX(){
@@ -1517,7 +1528,9 @@ document.addEventListener('click', e => {
   if(e.target.id === 'btnSubirTrasp') $('fileTrasp').click();
   if(e.target.id === 'btnPlantTrasp') abrirPlanTras();
   if(e.target.id === 'btnPlanGen') generarPlanTras(e.target);
-  if(e.target.id === 'btnPlanAjStock'){ const usado = {}; document.querySelectorAll('.plan-q').forEach(inp => { const k = inp.dataset.alm + '|' + inp.dataset.cod, st = STK[k] ?? 0, q = Math.max(0, +inp.value || 0), antes = usado[k] || 0, n = Math.max(0, Math.min(q, st - antes)); usado[k] = antes + n; if(n !== q){ inp.value = n; inp.classList.toggle('cambio', n !== +inp.dataset.ant); } });
+  if(e.target.id === 'btnPlanAjStock'){ const usado = {}; document.querySelectorAll('.plan-q').forEach(inp => { const al = inp.dataset.alm, q = Math.max(0, +inp.value || 0); let n = 0;
+      [inp.dataset.cod, ...equivs(inp.dataset.cod)].forEach(c => { const k = al + '|' + c, t = Math.max(0, Math.min(q - n, (STK[k] ?? 0) - (usado[k] || 0))); usado[k] = (usado[k] || 0) + t; n += t; });
+      if(n !== q){ inp.value = n; inp.classList.toggle('cambio', n !== +inp.dataset.ant); } });
     if(!$('planMotivo').value.trim()) $('planMotivo').value = 'sin stock suficiente en almacén'; revisarStockPlan(); }
   if(e.target.id === 'btnPresPlant') plantillaPresupuestos();
   if(e.target.id === 'btnPresSubir') $('filePres').click();
@@ -1770,6 +1783,11 @@ function datosInventario(){
   const cods = new Set([...Object.keys(por), ...ML.filter(m => matActivo(m) && matEnAlm(m, al)).map(m => m.codigo)]);
   const filas = [...cods].map(c => { const m = M[c] || info[c] || {}, d = por[c] || {conf:0, pend:0, tipos:{}}, st = INV[c] || 0, nec = d.conf + d.pend, saldo = st - nec;
     return {codigo:c, descripcion:m.descripcion || c, unidad:m.unidad || '', proveedor:provDe(c), tipos:d.tipos, stock:st, conf:d.conf, pend:d.pend, nec, saldo, falta:Math.max(0, -saldo), salas:salasC[c]?.size || 0, precio:PA[c], fuera:!M[c] || !matActivo(M[c])}; });
+  // materiales equivalentes: el stock de uno cubre lo que falte del otro; si aun así falta, se compra el de mayor demanda
+  const grupos = {}; filas.forEach(r => { const g = M[r.codigo]?.equiv; if(g) (grupos[g] ||= []).push(r); });
+  Object.values(grupos).forEach(gr => { if(gr.length < 2) return; const st = gr.reduce((a, r) => a + r.stock, 0), nec = gr.reduce((a, r) => a + r.nec, 0), fal = Math.max(0, nec - st);
+    const prin = gr.slice().sort((a, b) => b.nec - a.nec || b.stock - a.stock)[0];
+    gr.forEach(r => { r.falta = r === prin ? fal : 0; r.eqTxt = 'equivale a ' + gr.filter(x => x !== r).map(x => x.codigo).join(', ') + ' (stock compartido)'; }); });
   // material reemplazado: su stock cubre lo que se pueda y lo que falte se compra con el código de reemplazo
   const porC = Object.fromEntries(filas.map(r => [r.codigo, r]));
   filas.forEach(r => { const rc = M[r.codigo]?.reemplazo; if(!rc || rc === r.codigo || !r.falta) return;
@@ -1807,7 +1825,7 @@ function vInventario(){
     <div class="tbl-wrap"><table class="inv compra"><thead><tr><th>Insumo</th><th>Proveedor</th><th>Cod. int.</th><th class="num">U.M.</th>${TIPOS_INV.map(t => `<th class="num">${t[1]}</th>`).join('')}<th class="num th-periodo">Total período</th><th class="num">Stock</th><th class="num">A comprar</th>${vp ? '<th class="num">Costo unit.</th><th class="num">Valor a comprar</th>' : ''}</tr></thead><tbody>` +
     (l.length ? l.map(r => { if(r.proveedor !== prev){ alt = 0; prev = r.proveedor; } else alt = 1 - alt; const bg = BANDAS[band[r.proveedor]][alt];
       return `<tr style="--banda:${bg}"><td>${esc(r.descripcion)}</td><td class="prov">${esc(r.proveedor === 'SIN PROVEEDOR' ? '—' : r.proveedor)}</td><td class="code">${esc(r.codigo)}</td><td class="num">${esc(r.unidad)}</td>
-      ${TIPOS_INV.map(t => `<td class="num">${fq(r.tipos[t[0]] || 0)}</td>`).join('')}<td class="num"><strong>${fq(r.nec)}</strong></td><td class="num">${fq(r.stock)}</td><td class="num">${r.falta ? `<strong class="neg">${fq(r.falta)}</strong>` : '0'}${r.de ? `<div class="sub" style="margin:0">incluye ${r.de.map(x => { const [c, n] = x.split(':'); return `${fq(n)} del ${esc(c)}`; }).join(', ')}</div>` : ''}${r.va ? `<div class="sub" style="margin:0">lo que falta se compra como ${esc(r.va)}</div>` : ''}</td>${vp ? `<td class="num">${r.precio != null ? fBs(r.precio) : '<span class="sub">sin costo</span>'}</td><td class="num">${r.falta ? `<strong>${r.precio != null ? fBs(valCompra(r)) : '–'}</strong>` : '–'}</td>` : ''}</tr>`; }).join('')
+      ${TIPOS_INV.map(t => `<td class="num">${fq(r.tipos[t[0]] || 0)}</td>`).join('')}<td class="num"><strong>${fq(r.nec)}</strong></td><td class="num">${fq(r.stock)}</td><td class="num">${r.falta ? `<strong class="neg">${fq(r.falta)}</strong>` : '0'}${r.de ? `<div class="sub" style="margin:0">incluye ${r.de.map(x => { const [c, n] = x.split(':'); return `${fq(n)} del ${esc(c)}`; }).join(', ')}</div>` : ''}${r.va ? `<div class="sub" style="margin:0">lo que falta se compra como ${esc(r.va)}</div>` : ''}${r.eqTxt ? `<div class="sub" style="margin:0">${esc(r.eqTxt)}</div>` : ''}</td>${vp ? `<td class="num">${r.precio != null ? fBs(r.precio) : '<span class="sub">sin costo</span>'}</td><td class="num">${r.falta ? `<strong>${r.precio != null ? fBs(valCompra(r)) : '–'}</strong>` : '–'}</td>` : ''}</tr>`; }).join('')
       : `<tr><td colspan="12" class="empty">${fInvVer === 'falta' ? 'Con el stock actual alcanza para todo lo solicitado. 🎉' : 'No hay insumos para mostrar.'}</td></tr>`) + '</tbody>' +
     (l.length ? `<tfoot><tr class="inv-total"><td colspan="${4 + TIPOS_INV.length + 2}"><strong>Total a pedir${filtro ? ' (según el filtro)' : ''}</strong> · ${plural(l.filter(r => r.falta > 0).length, 'insumo', 'insumos')}</td><td class="num"><strong>${fq(totFalta)}</strong></td>${vp ? `<td></td><td class="num"><strong>${fBs(totL)}</strong></td>` : ''}</tr></tfoot>` : '') + '</table></div></section>';
 }

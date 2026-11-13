@@ -306,3 +306,6 @@ update public.maestro set reemplazo = '27233' where codigo = '25645';
 
 -- 2026-11-13: public.ajustar_cantidades(p_id, p_cant jsonb {codigo: cantidad}, p_nota)
 -- Logística del almacén ajusta cantidades de una solicitud Aprobada antes de generar el traspaso; guarda items_original y agrega nota.
+
+-- 2026-11-13: materiales equivalentes (maestro.equiv). Grupos: ETIQUETA-FLUOR (28259, 25665), PANO-FRANELA (25225, 25226), MARCADOR-AZUL-NEGRO (15547, 15548).
+-- La planilla de traspaso usa el equivalente cuando no hay stock; la necesidad de compra comparte stock; al entregar se descuenta primero del código y luego del equivalente.
