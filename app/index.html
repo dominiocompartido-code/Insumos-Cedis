@@ -872,7 +872,7 @@ function indicadoresCiclo(c, us){
 // con aperturas por defecto: también son costo para la empresa
 const valorSalaCiclo = (uid, c, conAp = true) => (conAp ? delCicloTodos : delCiclo)(c, p => p.unidad_id === uid && (p.estado === 'Confirmada' || p.estado === 'Aprobada' || p.estado === 'Entregada')).reduce((a, p) => a + valorPedido(p, p.estado === 'Entregada').total, 0);
 // ---------- tablero visual de cobertura ----------
-const EST_COB = [['Entregada','Dotada','var(--tile-ent)'],['Aprobada','Aprobada, por entregar','var(--tile-conf)'],['Confirmada','En aprobación final','var(--tile-fin)'],['Enviada','Enviada, sin confirmar','var(--tile-env)'],['Rechazada','Rechazada','var(--tile-rech)'],['none','Sin solicitud','var(--st-none)']];
+const EST_COB = [['Entregada','Dotada','var(--tile-ent)'],['Aprobada','Aprobada, por entregar','var(--tile-conf)'],['Enviada','Enviada, sin confirmar','var(--tile-env)'],['Rechazada','Rechazada','var(--tile-rech)'],['none','Sin solicitud','var(--st-none)']];
 const f1c = n => n == null ? '—' : (Math.round(n * 10) / 10).toLocaleString('es-BO');
 const mesCorto = c => nombreCiclo(c).slice(0, 3);
 function deltaCob(a, b, cB, mejorSube = true, suf = ' pts'){
@@ -1126,7 +1126,7 @@ const horas = ms => ms / H;
 const titulo = s => String(s || '').toLocaleLowerCase('es').replace(/(^|[\s\-(])(\p{L})/gu, (m, a, b) => a + b.toLocaleUpperCase('es')).trim();
 const fDias = h => { const d = h / 24; if(d < 1) return 'menos de 1 día'; const v = d < 10 ? Math.round(d * 10) / 10 : Math.round(d); return `${String(v).replace('.', ',')} ${v === 1 ? 'día' : 'días'}`; };
 const hace = ts => { const h = horas(Date.now() - ts); return h < 1 ? 'hace minutos' : h < 24 ? `hace ${Math.round(h)} h` : `hace ${Math.round(h/24)} d`; };
-const EST_TXT = {Confirmada:'Por aprobación final', Aprobada:'Aprobada'};
+const EST_TXT = {Confirmada:'Aprobada', Aprobada:'Aprobada'};
 const chip = e => `<span class="chip ${esc(e)}">${esc(EST_TXT[e] || e)}</span>`;
 const esFinal = () => !!rol.final;
 const store = { get(k){ try{ return localStorage.getItem(k); }catch(e){ return null; } }, set(k,v){ try{ localStorage.setItem(k,v); }catch(e){} } };
@@ -1250,7 +1250,7 @@ const esConsulta = () => !rol.admin && !!rol.consulta && !rol.grupos.length;
 // Jefatura (Helen, Hubert) es un rol asignado; ya no se deduce de aprobar Oficina central o CEDIS
 const verTablero = () => rol.admin || !!rol.consulta || !!rol.gerencia || !!rol.jefatura;
 const esJefatura = () => !rol.admin && !esConsulta() && verTablero();
-const SUB_TABLERO = [['tablero','Resumen'],['bandeja','Por confirmar'],['final','Aprobación final'],['preparacion','Preparación'],['entregar','Por entregar']];
+const SUB_TABLERO = [['tablero','Resumen'],['bandeja','Por confirmar'],['preparacion','Preparación'],['entregar','Por entregar']];
 const subTab = () => SUB_TABLERO.filter(x => (x[0] !== 'final' || (esFinal() && pedAll.some(p => p.estado === 'Confirmada'))) && (x[0] !== 'bandeja' || (!esConsulta() && (rol.admin || rol.grupos.length > 0))));
 function tabsDisponibles(){
   if(esConsulta()) return [['solicitar','Solicitar'], ['seguimiento','Seguimiento'], ['tablero','Tablero', subTab()], ['inventario','Inventario'], ['cobertura','Cobertura'], ['todos','Todos'], ['materiales','Materiales']];
@@ -1685,7 +1685,7 @@ function tabla(lista, cols, vacio, conSel){
     estado: ['Estado', p => `<td>${chip(p.estado)}${p.origen === 'historico' ? ' <span class="chip" title="Cargado desde el reporte de traspasos">histórico</span>' : ''}${p.items_original ? ' <span class="chip ajuste">ajustada</span>' : ''}${p.items_entregados ? ' <span class="chip alerta">entrega parcial</span>' : ''}${p.tipo === 'Apertura' ? ` <span class="chip apertura">Apertura${p.fecha_apertura && p.estado !== 'Entregada' ? ' · ' + esc(txtAbre(p.fecha_apertura)) : ''}</span>` : ''}${tarde(p) ? ' <span class="chip">fuera de plazo</span>' : ''}${p.estado === 'Enviada' && horas(Date.now() - p.ts) > 48 ? ' <span class="chip alerta">+2 días</span>' : ''}</td>`],
     traspaso: ['N° traspaso', p => !usaTraspaso(p) ? '<td class="sub">No aplica</td>' : rol.admin && p.estado === 'Aprobada' ? `<td class="td-trasp"><input class="trasp-in" data-trasp="${esc(p.id)}" value="${esc(p.nro_traspaso || '')}" maxlength="40" placeholder="Escriba…" aria-label="Número de traspaso de ${esc(p.codigo)}"></td>` : `<td class="mono">${esc(p.nro_traspaso || '–')}</td>`],
     anular: ['', p => `<td class="num" style="white-space:nowrap">${puedeEditarPed(p) ? `<button class="btn btn-sm" data-editar-ped="${esc(p.id)}">Editar</button> <button class="btn btn-sm btn-danger" data-anular="${esc(p.id)}">Anular</button>` : ''}</td>`],
-    avance: ['Último avance', p => `<td class="sub">${p.estado === 'Anulada' ? 'Anulada ' + fFH(p.anulado_ts) : p.entregado_ts ? 'Entregada ' + fFH(p.entregado_ts) + (p.nro_traspaso ? ' · Traspaso ' + esc(p.nro_traspaso) : '') : p.estado === 'Rechazada' ? 'Rechazada ' + fFH(p.aprobado_ts || p.confirmado_ts) : p.aprobado_ts ? 'Aprobada ' + fFH(p.aprobado_ts) : p.confirmado_ts ? 'Confirmada ' + fFH(p.confirmado_ts) + ' · falta aprobación final' : 'Esperando confirmación'}</td>`],
+    avance: ['Último avance', p => `<td class="sub">${p.estado === 'Anulada' ? 'Anulada ' + fFH(p.anulado_ts) : p.entregado_ts ? 'Entregada ' + fFH(p.entregado_ts) + (p.nro_traspaso ? ' · Traspaso ' + esc(p.nro_traspaso) : '') : p.estado === 'Rechazada' ? 'Rechazada ' + fFH(p.aprobado_ts || p.confirmado_ts) : p.aprobado_ts ? 'Aprobada ' + fFH(p.aprobado_ts) : p.confirmado_ts ? 'Aprobada ' + fFH(p.confirmado_ts) : 'Esperando confirmación'}</td>`],
   };
   if(verCosto() && cols.includes('items') && !cols.includes('valor')) cols = cols.flatMap(c => c === 'items' ? ['items','valor'] : [c]);
   const o = ordTab[tab] || {};
@@ -1703,7 +1703,6 @@ function kpis(lista){
   const atras = env.filter(p => horas(Date.now() - p.ts) > 48).length;
   return `<div class="kpis">
     <div class="kpi env"><p>Por confirmar</p><b>${env.length}</b><span>${atras ? `<span class="chip alerta">${atras} con más de 2 días</span>` : 'al día'}</span></div>
-    ${fin.length ? `<div class="kpi fin"><p>En aprobación final</p><b>${fin.length}</b><span>esperan a Finanzas</span></div>` : ''}
     <div class="kpi conf"><p>Aprobadas por entregar</p><b>${conf.length}</b><span>listas para preparar</span></div>
     <div class="kpi ent"><p>Entregadas · 7 días</p><b>${ent7.length}</b><span>solicitudes</span></div>
     <div class="kpi tiempo"><p>Tiempo a confirmar</p><b>${prom == null ? '–' : fDias(prom)}</b><span>promedio</span></div>
@@ -1719,7 +1718,7 @@ const selCicloRes = () => { const cA = cicloActivo(), l = mesesDisp().slice().re
 document.addEventListener('change', e => { if(e.target.id === 'fResCiclo'){ fResCiclo = +e.target.value; render(); } });
 function mapa(grupos){
   const ult = {}; delCicloActual().forEach(p => { if(!ult[p.unidad_id] || ult[p.unidad_id].ts < p.ts) ult[p.unidad_id] = p; });
-  return `<div class="leyenda"><span><i></i>Sin solicitud</span><span><i class="Enviada"></i>Enviada</span>${pedidos.some(p => p.estado === 'Confirmada') ? '<span><i class="Confirmada"></i>Por aprobación final</span>' : ''}<span><i class="Aprobada"></i>Aprobada</span><span><i class="Entregada"></i>Entregada</span><span><i class="Rechazada"></i>Rechazada</span></div><div class="mapa">` +
+  return `<div class="leyenda"><span><i></i>Sin solicitud</span><span><i class="Enviada"></i>Enviada</span><span><i class="Aprobada"></i>Aprobada</span><span><i class="Entregada"></i>Entregada</span><span><i class="Rechazada"></i>Rechazada</span></div><div class="mapa">` +
     grupos.map(g => { const us = UL.filter(u => u.grupo_id === g.id && u.activa); if(!us.length) return '';
       const pend = us.filter(u => ult[u.id]?.estado === 'Enviada').length, suc = g.tipo === 'Sucursales' || g.tipo === 'Sin asignar';
       return `<div class="grupo-mapa" data-g="${esc(g.id)}"><header><strong>${esc(g.nombre)} · ${esc(g.aprobador)}</strong><span class="sub" style="margin:0">${us.length} ${suc ? 'sucursales' : 'áreas'}${pend ? ` · <span class="chip Enviada">${pend} por confirmar</span>` : ''}</span></header>
@@ -1727,7 +1726,7 @@ function mapa(grupos){
     }).join('') + '</div>';
 }
 const selGrupo = (id, val, todos = 'Todos los grupos') => `<select id="${id}" style="width:auto"><option value="TODOS">${todos}</option>${GL.map(g => `<option value="${g.id}" ${val === g.id ? 'selected' : ''}>${esc(g.nombre)}</option>`).join('')}</select>`;
-const selEstado = (id, val) => `<select id="${id}" style="width:auto">${['TODOS','Enviada','Confirmada','Aprobada','Entregada','Rechazada'].map(e => `<option value="${e}" ${val === e ? 'selected' : ''}>${e === 'TODOS' ? 'Todos los estados' : EST_TXT[e] || e}</option>`).join('')}</select>`;
+const selEstado = (id, val) => `<select id="${id}" style="width:auto">${['TODOS','Enviada','Aprobada','Entregada','Rechazada'].map(e => `<option value="${e}" ${val === e ? 'selected' : ''}>${e === 'TODOS' ? 'Todos los estados' : EST_TXT[e] || e}</option>`).join('')}</select>`;
 
 // ---------- vistas: aprobador ----------
 function vBandeja(){
@@ -1774,7 +1773,7 @@ function vAperturas(){
       const btn = p.estado === 'Enviada' && puedeAprobar(p) ? `<button class="btn btn-sm btn-primary" data-conf-ap="${esc(p.id)}">Confirmar apertura</button>` : p.estado === 'Aprobada' && rol.admin ? `<button class="btn btn-sm btn-ok" data-ver="${esc(p.id)}">Entregar</button>` : '';
       return `<div class="ap-card ${r ? 'riesgo' : ''} ${p.estado === 'Entregada' ? 'lista' : ''}"><div class="ap-top"><b>${esc(u.nombre)}</b>${chip(p.estado)}</div>
         <div class="ap-abre">${esc(txtAbre(p.fecha_apertura))}</div>
-        <ol class="ap-pasos">${['Enviada','Confirmada','Entregada'].map((n,i) => `<li class="${i <= paso ? 'ok' : ''}">${n}</li>`).join('')}</ol>
+        <ol class="ap-pasos">${['Enviada','Aprobada','Entregada'].map((n,i) => `<li class="${i <= paso ? 'ok' : ''}">${n}</li>`).join('')}</ol>
         ${r ? `<div class="ap-alerta">⚠ ${esc(r)}</div>` : ''}
         <div class="ap-pie"><span class="sub" style="margin:0">${esc(p.codigo)} · ${esc(G[U[p.unidad_id]?.grupo_id]?.aprobador || '')}</span><span style="display:flex;gap:6px"><button class="btn btn-sm" data-ver="${esc(p.id)}">Ver</button>${btn}</span></div></div>`; }).join('') + '</div></section>';
 }
@@ -1801,7 +1800,7 @@ function vTablero(){
   const T = Object.values(tot).reduce((a,b) => a + b, 0);
   return bannerPush() + lineaCicloCorta(cicloActivo()) + vAperturas() + bloqueAvisos(a => !a.apertura) + selCicloRes() + kpis(delCicloActual()) + `<section class="panel"><div class="panel-head"><div><h2>Mapa de sucursales y áreas · ${esc(nombreCiclo(cicloRes()))}</h2><p class="sub">Color según su solicitud del ciclo actual (gris: todavía no pidió). Toque un cuadro para abrirla. Los ciclos anteriores se ven en Cobertura y Todos.</p></div></div>${mapa(GL)}</section>
     <section class="panel resumen-aprob"><div class="panel-head"><div><h3 style="margin:0">Resumen por aprobador · ${esc(nombreCiclo(cicloRes()))}</h3><p class="sub">Solicitudes del ciclo elegido de cada aprobador, según su estado.</p></div></div>
-    <div class="tbl-wrap"><table class="tbl-resumen"><thead><tr><th>Aprobador</th><th class="num">Por confirmar</th><th class="num">Confirmadas</th><th class="num">Entregadas</th><th class="num">Rechazadas</th><th class="num">Total</th>${verPrecios() ? `<th class="num">Valor ${esc(nombreCiclo(cicloRes()).split(' ')[0].toLowerCase())}</th>` : ''}<th class="num" title="Tiempo de la solicitud más antigua sin confirmar">Más antigua</th></tr></thead><tbody>${filas}</tbody>
+    <div class="tbl-wrap"><table class="tbl-resumen"><thead><tr><th>Aprobador</th><th class="num">Por confirmar</th><th class="num">Aprobadas</th><th class="num">Entregadas</th><th class="num">Rechazadas</th><th class="num">Total</th>${verPrecios() ? `<th class="num">Valor ${esc(nombreCiclo(cicloRes()).split(' ')[0].toLowerCase())}</th>` : ''}<th class="num" title="Tiempo de la solicitud más antigua sin confirmar">Más antigua</th></tr></thead><tbody>${filas}</tbody>
     <tfoot><tr><td>Total</td><td class="num">${tot.Enviada}</td><td class="num">${tot.Confirmada}</td><td class="num">${tot.Entregada}</td><td class="num">${tot.Rechazada}</td><td class="num">${T}</td>${verPrecios() ? `<td class="num" style="white-space:nowrap">${fBs(pedidos.filter(p => cicloP(p) === cicloRes() && GL.some(g => g.id === grupoDe(p)) && (p.estado === 'Confirmada' || p.estado === 'Aprobada' || p.estado === 'Entregada')).reduce((a,p) => a + valorPedido(p, p.estado === 'Entregada').total, 0))}</td>` : ''}<td></td></tr></tfoot></table></div></section>`;
 }
 let fEnt = 'TODOS', fEntQ = '';
@@ -2244,12 +2243,12 @@ function abrirDet(id){ det = pedidos.find(p => p.id === id) || anuladas.find(p =
 function pintaDet(){
   const p = det, u = U[p.unidad_id] || {nombre:p.unidad_id, tipo:''}, edit = p.estado === 'Enviada' && puedeAprobar(p), rech = p.estado === 'Rechazada';
   $('detTitulo').textContent = `${p.codigo} · ${u.nombre}`;
-  const fin = p.aprobado_ts || p.estado === 'Confirmada' || (p.estado === 'Rechazada' && p.aprobado_por) || (p.estado === 'Entregada' && p.aprobado_ts);
-  const nivel = {Enviada:0, Confirmada:1, Aprobada:2, Rechazada:fin && p.aprobado_por ? 2 : 1, Entregada:3}[p.estado];
-  const iR = p.aprobado_por && rech ? 2 : 1;
+  // ya no hay aprobación final: Enviada → Aprobada → Entregada
+  const nivel = {Enviada:0, Confirmada:1, Aprobada:1, Rechazada:1, Entregada:2}[p.estado];
+  const iR = 1;
   const paso = (n, ts, i) => { const cls = rech && i === iR ? 'bad' : rech && i > iR ? '' : i <= nivel ? 'done' : i === nivel + 1 ? 'now' : '';
     return `<li class="${cls}"><b>${rech && i === iR ? 'Rechazada' : n}</b>${(cls === 'done' || cls === 'bad') && ts ? fFH(ts) : cls === 'now' ? 'En espera' : 'Pendiente'}</li>`; };
-  let h = esHist(p) ? `<div class="notice info">Histórico cargado desde el reporte de traspasos: solo se conoce la fecha del traspaso (<strong>${new Date(p.entregado_ts).toLocaleDateString('es-BO')}</strong>, ciclo ${esc(nombreCiclo(cicloP(p)))}).</div>` : `<ol class="steps">${paso('Enviada', p.ts, 0)}${paso('Confirmada', p.confirmado_ts, 1)}${paso('Aprobación final', p.aprobado_ts, 2)}${paso('Entregada', p.entregado_ts, 3)}</ol>`;
+  let h = esHist(p) ? `<div class="notice info">Histórico cargado desde el reporte de traspasos: solo se conoce la fecha del traspaso (<strong>${new Date(p.entregado_ts).toLocaleDateString('es-BO')}</strong>, ciclo ${esc(nombreCiclo(cicloP(p)))}).</div>` : `<ol class="steps">${paso('Enviada', p.ts, 0)}${paso('Aprobada', p.aprobado_ts || p.confirmado_ts, 1)}${paso('Entregada', p.entregado_ts, 2)}</ol>`;
   h += `
     <div class="meta"><div><strong>${esc(u.tipo || 'Unidad')}:</strong> ${esc(u.nombre)}</div><div><strong>Solicitó:</strong> ${esc(titulo(p.solicitante))}${p.enviado_por ? ` <span class="sub">(${esc(p.enviado_por)})</span>` : ''}</div><div><strong>Aprueba:</strong> ${esc(G[u.grupo_id]?.aprobador || '')}</div>
     ${u.muelle ? `<div><strong>Muelle:</strong> ${esc(u.muelle)}</div>` : ''}${p.nro_traspaso ? `<div><strong>N° de traspaso:</strong> <span class="mono">${esc(p.nro_traspaso)}</span></div>` : ''}<div><strong>Estado:</strong> ${chip(p.estado)}${p.tipo === 'Apertura' ? ' <span class="chip apertura">Apertura</span>' : ''}</div>${p.tipo === 'Apertura' ? `<div><strong>Inauguración:</strong> ${p.fecha_apertura ? esc(fDia(p.fecha_apertura)) + ' · ' + esc(txtAbre(p.fecha_apertura)) : 'sin fecha'}</div>` : ''}${p.recibido_por ? `<div><strong>Recibió:</strong> ${esc(p.recibido_por)}</div>` : ''}</div>`;

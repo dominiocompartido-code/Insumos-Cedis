@@ -166,7 +166,7 @@ function indicadoresCiclo(c, us){
 // con aperturas por defecto: también son costo para la empresa
 const valorSalaCiclo = (uid, c, conAp = true) => (conAp ? delCicloTodos : delCiclo)(c, p => p.unidad_id === uid && (p.estado === 'Confirmada' || p.estado === 'Aprobada' || p.estado === 'Entregada')).reduce((a, p) => a + valorPedido(p, p.estado === 'Entregada').total, 0);
 // ---------- tablero visual de cobertura ----------
-const EST_COB = [['Entregada','Dotada','var(--tile-ent)'],['Aprobada','Aprobada, por entregar','var(--tile-conf)'],['Confirmada','En aprobación final','var(--tile-fin)'],['Enviada','Enviada, sin confirmar','var(--tile-env)'],['Rechazada','Rechazada','var(--tile-rech)'],['none','Sin solicitud','var(--st-none)']];
+const EST_COB = [['Entregada','Dotada','var(--tile-ent)'],['Aprobada','Aprobada, por entregar','var(--tile-conf)'],['Enviada','Enviada, sin confirmar','var(--tile-env)'],['Rechazada','Rechazada','var(--tile-rech)'],['none','Sin solicitud','var(--st-none)']];
 const f1c = n => n == null ? '—' : (Math.round(n * 10) / 10).toLocaleString('es-BO');
 const mesCorto = c => nombreCiclo(c).slice(0, 3);
 function deltaCob(a, b, cB, mejorSube = true, suf = ' pts'){
