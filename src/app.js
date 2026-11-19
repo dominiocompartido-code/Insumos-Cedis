@@ -732,6 +732,34 @@ let ordPrep = {};
 const valPrep = (f, k) => k === 'cod' ? (+normCod(f.codigo) || normTxt(f.codigo)) : k === 'desc' ? normTxt(f.descripcion) : k === 'um' ? normTxt(f.unidad || '') : k === 'total' ? f.total : k === 'salas' ? f.unidades.size : k === 'valor' ? (P[f.codigo] != null ? P[f.codigo] * f.total : null) : k.startsWith('mu:') ? (f.por[k.slice(3)] || 0) : null;
 const thPrep = (k, txt, cls = '', tit = '') => `<th class="th-ord ${cls}" data-ordprep="${k}" title="${tit || 'Ordenar'}">${txt}<span class="flecha${ordPrep.k === k ? ' on' : ''}">${ordPrep.k === k ? (ordPrep.dir === 1 ? '▲' : '▼') : '↕'}</span></th>`;
 document.addEventListener('click', e => { const th = e.target.closest?.('[data-ordprep]'); if(!th) return; const k = th.dataset.ordprep; ordPrep = ordPrep.k === k ? (ordPrep.dir === 1 ? {k, dir:-1} : {}) : {k, dir:1}; render(); });
+// qué salas o áreas pidieron un insumo (mismas solicitudes que la tabla de Preparación)
+function salasDeInsumo(cod){
+  const {l} = datosPrep();
+  return l.flatMap(p => { const i = p.items.find(x => x.codigo === cod); if(!i || !(+i.cantidad > 0 || (p.items_original || []).some(x => x.codigo === cod))) return [];
+    const u = U[p.unidad_id] || {}, o = (p.items_original || []).find(x => x.codigo === cod);
+    return [{p, u, q:+i.cantidad || 0, ped:o ? +o.cantidad : +i.cantidad || 0}]; })
+    .sort((a, b) => ordU(a.u) - ordU(b.u) || normTxt(a.u.nombre || '').localeCompare(normTxt(b.u.nombre || '')));
+}
+function verSalasInsumo(cod){
+  const r = salasDeInsumo(cod), m = M[cod] || {}, fq = n => (+n).toLocaleString('es-BO', {maximumFractionDigits:2}), tot = r.reduce((a, x) => a + x.q, 0), totP = r.reduce((a, x) => a + x.ped, 0), aj = r.some(x => x.q !== x.ped);
+  $('detTitulo').textContent = `${cod} · ${m.descripcion || r[0]?.p.items.find(x => x.codigo === cod)?.descripcion || ''}`;
+  $('detBody').innerHTML = `<p class="sub" style="margin:0">${plural(r.length, 'sala o área lo pidió', 'salas o áreas lo pidieron')} en ${esc(nombreCiclo(fPrepCiclo || cicloActivo()))} (solicitudes aprobadas por preparar${fPrep !== 'TODOS' ? ', grupo filtrado' : ''}).</p>
+    <div class="tbl-wrap" style="max-height:60vh"><table><thead><tr><th>Sala o área</th><th>Grupo</th><th>Muelle</th><th>Solicitud</th>${aj ? '<th class="num">Pedido</th>' : ''}<th class="num">${aj ? 'A enviar' : 'Cantidad'}</th></tr></thead><tbody>
+    ${r.map(x => `<tr><td>${esc(x.u.nombre || x.p.unidad_id)}${x.p.solicitante ? `<div class="sub" style="margin:0">${esc(x.p.solicitante)}</div>` : ''}</td><td>${esc(G[x.u.grupo_id]?.aprobador || '')}</td><td>${esc(x.u.muelle || '–')}</td><td><a href="#" data-verins="${esc(x.p.id)}">${esc(x.p.codigo)}</a></td>${aj ? `<td class="num">${fq(x.ped)}</td>` : ''}<td class="num"><strong>${fq(x.q)}</strong>${x.q !== x.ped ? ' <span class="chip alerta">ajustado</span>' : ''}</td></tr>`).join('')}
+    <tr class="tot"><td>Total</td><td></td><td></td><td></td>${aj ? `<td class="num">${fq(totP)}</td>` : ''}<td class="num"><strong>${fq(tot)}</strong> ${esc(m.unidad || '')}</td></tr></tbody></table></div>
+    <div class="row right"><button class="btn" data-close="mDet">Cerrar</button><button class="btn btn-primary" data-excelins="${esc(cod)}">⬇ Excel</button></div>`;
+  $('mDet').hidden = false;
+}
+function excelSalasInsumo(cod){
+  const r = salasDeInsumo(cod), m = M[cod] || {}, W = XL.libro(), h = W.hoja('Salas'), cab = {b:true, sz:10, color:'FFFFFFFF', fill:'FF1F3864', h:'center', v:'center', wrap:true, bt:'thin', bb:'thin', bl:'thin', br:'thin'}, cel = {sz:10, bt:'thin', bb:'thin', bl:'thin', br:'thin'};
+  h.set(0, 0, `${cod} · ${m.descripcion || ''} · ${nombreCiclo(fPrepCiclo || cicloActivo())}`, {b:true, sz:12});
+  ['Sala o área','Código sala','Grupo','Muelle','Solicitud','Solicitante','Pedido','A enviar','U.M.'].forEach((t, c) => h.set(2, c, t, cab));
+  r.forEach((x, k) => [x.u.nombre || x.p.unidad_id, x.u.codigo_sala || '', G[x.u.grupo_id]?.aprobador || '', x.u.muelle || '', x.p.codigo, x.p.solicitante || '', x.ped, x.q, m.unidad || ''].forEach((v, c) => h.set(3 + k, c, v, {...cel, h:c >= 6 && c < 8 ? 'right' : 'left'})));
+  const y = 3 + r.length; h.set(y, 0, 'TOTAL', {...cel, b:true}); h.set(y, 6, null, {...cel, b:true, h:'right'}, `SUM(G4:G${y})`); h.set(y, 7, null, {...cel, b:true, h:'right'}, `SUM(H4:H${y})`);
+  [34,12,26,10,11,24,9,9,7].forEach((w, c) => h.anchos[c] = w); h.freeze = 3;
+  descargar(W.generar(), `Salas_${cod}_${hoyISO()}.xlsx`);
+}
+document.addEventListener('click', e => { const v = e.target.closest?.('[data-verins]'); if(v){ e.preventDefault(); abrirDet(v.dataset.verins); return; } const t = e.target.closest?.('[data-insprep]'); if(t){ verSalasInsumo(t.dataset.insprep); return; } const x = e.target.closest?.('[data-excelins]'); if(x) excelSalasInsumo(x.dataset.excelins); });
 function vPreparacion(){
   const {l, filas:f0} = datosPrep(), MUELLES = muellesAlm(almVista()) ? MUELLES_ALL : [];
   const filas = !ordPrep.k ? f0 : f0.slice().sort((a, b) => { const x = valPrep(a, ordPrep.k), y = valPrep(b, ordPrep.k); return (x == null && y == null ? 0 : x == null ? 1 : y == null ? -1 : (x < y ? -1 : x > y ? 1 : 0) * ordPrep.dir) || normTxt(a.descripcion).localeCompare(normTxt(b.descripcion)); });
@@ -747,7 +775,7 @@ function vPreparacion(){
   <section class="panel"><div class="panel-head"><div><h2>Preparación${MUELLES.length ? ' por muelle' : ''}</h2><p class="sub">Ciclo ${esc(nombreCiclo(c))} (insumos para usar en ${esc(nombreCiclo(c).split(' ')[0].toLowerCase())}), aprobado y aún no entregado: ${plural(l.length, 'solicitud', 'solicitudes')}.</p></div>
     <div class="row">${selGrupo('fPrep', fPrep)}</div></div>
     <div class="tbl-wrap"><table><thead><tr>${thPrep('cod','Código')}${thPrep('desc','Insumo')}${thPrep('um','U.M.','num')}${thPrep('total','Total','num col-total')}${MUELLES.map(m => thPrep('mu:' + m, m === 'SIN' ? 'Sin muelle' : m, 'num')).join('')}${thPrep('salas','N° salas','num','Cuántas salas o áreas pidieron este insumo · clic para ordenar')}${verPrecios() ? thPrep('valor','Valor','num') : ''}</tr></thead><tbody>` +
-    (filas.length ? filas.map(f => `<tr><td class="code">${esc(f.codigo)}</td><td>${esc(f.descripcion)}</td><td class="num">${esc(f.unidad)}</td><td class="num col-total"><strong>${f.total}</strong></td>${MUELLES.map(m => f.por[m] ? `<td class="num">${f.por[m]}</td>` : '<td class="num zero">–</td>').join('')}<td class="num">${f.unidades.size}</td>${verPrecios() ? `<td class="num" style="white-space:nowrap">${P[f.codigo] != null ? fBs(P[f.codigo] * f.total) : '<span class="sub">sin precio</span>'}</td>` : ''}</tr>`).join('') +
+    (filas.length ? filas.map(f => `<tr class="fila-ins" data-insprep="${esc(f.codigo)}" title="Ver qué salas o áreas pidieron este insumo"><td class="code">${esc(f.codigo)}</td><td>${esc(f.descripcion)} <span class="ver-salas">ver salas ›</span></td><td class="num">${esc(f.unidad)}</td><td class="num col-total"><strong>${f.total}</strong></td>${MUELLES.map(m => f.por[m] ? `<td class="num">${f.por[m]}</td>` : '<td class="num zero">–</td>').join('')}<td class="num">${f.unidades.size}</td>${verPrecios() ? `<td class="num" style="white-space:nowrap">${P[f.codigo] != null ? fBs(P[f.codigo] * f.total) : '<span class="sub">sin precio</span>'}</td>` : ''}</tr>`).join('') +
       `<tr class="tot"><td></td><td>Total</td><td></td><td class="num col-total">${filas.reduce((a,f) => a + f.total, 0)}</td>${MUELLES.map(m => `<td class="num">${tot[m] || '–'}</td>`).join('')}<td></td>${verPrecios() ? `<td class="num" style="white-space:nowrap">${fBs(filas.reduce((a,f) => a + (P[f.codigo] || 0) * f.total, 0))}</td>` : ''}</tr>`
       : '<tr><td colspan="11" class="empty">Nada pendiente de preparar.</td></tr>') + '</tbody></table></div></section>';
 }
