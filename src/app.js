@@ -1153,10 +1153,10 @@ function pintaDet(){
   const orig = p.items_original || p.items;
   if(edit){
     h += `<div class="notice">Puede cambiar cantidades o quitar líneas antes de confirmar. La sucursal verá lo que pidió y lo que usted confirmó.</div>
-    <div class="tbl-wrap"><table><thead><tr><th>Código</th><th>Insumo</th><th class="num">U.M.</th><th class="num">Pidió</th><th class="num">Confirmar</th>${verCosto() ? '<th class="num">Costo unit.</th>' : ''}<th class="num">Quitar</th></tr></thead><tbody>` +
+    <div class="tbl-wrap"><table><thead><tr><th>Código</th><th>Insumo</th><th class="num">U.M.</th><th class="num">Pidió</th><th class="num">Confirmar</th>${verCosto() ? '<th class="num">Costo unit.</th><th class="num">Subtotal</th>' : ''}<th class="num">Quitar</th></tr></thead><tbody>` +
       (detItems.length ? detItems.map((i,k) => { const o = orig.find(x => x.codigo === i.codigo);
         return `<tr><td class="code">${esc(i.codigo)}</td><td>${esc(i.descripcion)}</td><td class="num">${esc(i.unidad)}</td><td class="num">${o ? esc(o.cantidad) : '–'}</td>
-        <td class="num"><input type="number" min="1" class="qty" id="dq-${k}" data-dk="${k}" value="${esc(i.cantidad)}" aria-label="Cantidad a confirmar"></td>${verCosto() ? `<td class="num">${celBs(precioDe(p, i.codigo))}</td>` : ''}<td class="num"><button class="btn btn-sm btn-danger" data-dd="${k}">Quitar</button></td></tr>`; }).join('')
+        <td class="num"><input type="number" min="1" class="qty" id="dq-${k}" data-dk="${k}" value="${esc(i.cantidad)}" aria-label="Cantidad a confirmar"></td>${verCosto() ? `<td class="num">${celBs(precioDe(p, i.codigo))}</td><td class="num" id="dsub-${k}">${subBs(p, i.codigo, i.cantidad)}</td>` : ''}<td class="num"><button class="btn btn-sm btn-danger" data-dd="${k}">Quitar</button></td></tr>`; }).join('') + (verCosto() && detItems.length ? `<tr class="tot"><td></td><td>Total</td><td></td><td></td><td></td><td></td><td class="num"><strong id="dsubTot">${fBs(detItems.reduce((a, i) => a + (precioDe(p, i.codigo) || 0) * (+i.cantidad || 0), 0))}</strong></td><td></td></tr>` : '')
         : '<tr><td colspan="6" class="empty">Quitó todas las líneas. Si no corresponde, rechace la solicitud.</td></tr>') + `</tbody></table></div>
     <label class="f">Nota para la sucursal (opcional)<input id="dNota" maxlength="500" placeholder="Ej: Se ajustó al consumo promedio mensual"></label>
     <div class="row right"><input id="dMotivo" maxlength="500" placeholder="Motivo si la rechaza" style="max-width:300px"><button class="btn btn-danger" id="dRech">Rechazar</button><button class="btn btn-primary" id="dConf">Confirmar solicitud</button></div>`;
@@ -1164,9 +1164,9 @@ function pintaDet(){
     const entEdit = rol.admin && p.estado === 'Aprobada';
     if(entEdit){
       h += `<div class="notice">Revise lo que va a entregar. Si no tiene stock de algún insumo, baje la cantidad (puede ser 0) e indique el motivo.</div>
-      <div class="tbl-wrap"><table><thead><tr><th>Código</th><th>Insumo</th><th class="num">U.M.</th><th class="num">Confirmado</th><th class="num">A entregar</th></tr></thead><tbody>` +
+      <div class="tbl-wrap"><table><thead><tr><th>Código</th><th>Insumo</th><th class="num">U.M.</th><th class="num">Confirmado</th><th class="num">A entregar</th>${verCosto() ? '<th class="num">Costo unit.</th><th class="num">Subtotal</th>' : ''}</tr></thead><tbody>` +
         p.items.map((c,k) => `<tr><td class="code">${esc(c.codigo)}</td><td>${esc(c.descripcion)}</td><td class="num">${esc(c.unidad)}</td><td class="num">${esc(c.cantidad)}</td>
-          <td class="num"><input type="number" min="0" max="${esc(c.cantidad)}" class="qty${+detEnt[k] !== +c.cantidad ? ' cambio' : ''}" data-ek="${k}" value="${esc(detEnt[k])}" aria-label="Cantidad a entregar de ${esc(c.descripcion)}"></td></tr>`).join('') + `</tbody></table></div>
+          <td class="num"><input type="number" min="0" max="${esc(c.cantidad)}" class="qty${+detEnt[k] !== +c.cantidad ? ' cambio' : ''}" data-ek="${k}" value="${esc(detEnt[k])}" aria-label="Cantidad a entregar de ${esc(c.descripcion)}"></td>${verCosto() ? `<td class="num">${celBs(precioDe(p, c.codigo))}</td><td class="num" id="esub-${k}">${subBs(p, c.codigo, detEnt[k])}</td>` : ''}</tr>`).join('') + (verCosto() ? `<tr class="tot"><td></td><td>Total</td><td></td><td></td><td></td><td></td><td class="num"><strong id="esubTot">${fBs(p.items.reduce((a, c, k) => a + (precioDe(p, c.codigo) || 0) * (+detEnt[k] || 0), 0))}</strong></td></tr>` : '') + `</tbody></table></div>
       <p class="sub" id="entResumen" style="margin:0"></p>
       <label class="f" id="entMotivoWrap">Motivo de la diferencia<input id="dNotaEnt" maxlength="500" placeholder="Ej: Sin stock de bolsas, se completa el próximo mes"></label>`;
     } else {
@@ -1189,7 +1189,12 @@ function pintaDet(){
   $('detBody').innerHTML = h;
   pintaEntResumen();
 }
-$('detBody').addEventListener('input', e => { const k = e.target.dataset.ek; if(k == null) return; const max = +det.items[k].cantidad, v = parseInt(e.target.value); if(!isNaN(v) && v >= 0 && v <= max){ detEnt[k] = v; e.target.classList.toggle('cambio', v !== max); pintaEntResumen(); } });
+// subtotal en Bs de una línea: costo unitario × cantidad
+const subBs = (p, cod, q) => { const pu = precioDe(p, cod); return pu == null ? '–' : fBs(pu * (+q || 0)); };
+$('detBody').addEventListener('input', e => { const k = e.target.dataset.ek; if(k == null) return; const max = +det.items[k].cantidad, v = parseInt(e.target.value); if(!isNaN(v) && v >= 0 && v <= max){ detEnt[k] = v; e.target.classList.toggle('cambio', v !== max); pintaEntResumen();
+  if($('esub-' + k)){ $('esub-' + k).innerHTML = subBs(det, det.items[k].codigo, v); $('esubTot').textContent = fBs(det.items.reduce((a, c, j) => a + (precioDe(det, c.codigo) || 0) * (+detEnt[j] || 0), 0)); } } });
+$('detBody').addEventListener('input', e => { const k = e.target.dataset.dk; if(k == null || !$('dsub-' + k)) return; const v = parseInt(e.target.value);
+  $('dsub-' + k).innerHTML = subBs(det, detItems[k].codigo, v > 0 ? v : 0); $('dsubTot').textContent = fBs(detItems.reduce((a, i, j) => a + (precioDe(det, i.codigo) || 0) * (j == k ? (v > 0 ? v : 0) : (+i.cantidad || 0)), 0)); });
 $('detBody').addEventListener('change', e => { const ek = e.target.dataset.ek; if(ek != null){ const max = +det.items[ek].cantidad, v = parseInt(e.target.value); if(isNaN(v) || v < 0 || v > max){ e.target.value = detEnt[ek]; toast(`La cantidad a entregar debe estar entre 0 y ${max}.`); } return; }
   const k = e.target.dataset.dk; if(k == null) return; const v = parseInt(e.target.value); if(v > 0) detItems[k].cantidad = v; else e.target.value = detItems[k].cantidad; });
 $('detBody').addEventListener('click', async e => {
