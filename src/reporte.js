@@ -1,7 +1,7 @@
 // ---------- reporte de dotación en el formato del Excel "Dotacion Sucursales" ----------
 const MUELLES_R = ['DESP-01','DESP-02','DESP-03','DESP-04','DESP-05'];
 function datosDotacion(ciclo, alcance){
-  const incl = p => p.estado === 'Aprobada' && cicloP(p) === ciclo && U[p.unidad_id] && (alcance === 'todo' || U[p.unidad_id].tipo === 'Sucursal');
+  const incl = p => p.estado === 'Aprobada' && (Array.isArray(ciclo) ? ciclo.includes(cicloP(p)) : cicloP(p) === ciclo) && U[p.unidad_id] && (alcance === 'todo' || U[p.unidad_id].tipo === 'Sucursal');
   // un bloque por sala; si la misma sala o área tiene varias solicitudes de personas distintas, un bloque por solicitante con su nombre
   const lp = pedidos.filter(incl), sols = {}; lp.forEach(p => (sols[p.unidad_id] ||= new Set()).add(normTxt(p.solicitante || '')));
   const clave = p => sols[p.unidad_id].size > 1 ? p.unidad_id + '|' + normTxt(p.solicitante || '') : p.unidad_id;

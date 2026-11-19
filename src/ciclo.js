@@ -127,7 +127,7 @@ let fIndCiclo = 4;
 // meses elegidos en Cobertura (selección múltiple); por defecto, el último mes cerrado
 let fCobMeses = null, msAbierto = false;
 const mesesDisp = () => { const cA = cicloActivo(), out = []; for(let c = Math.min(inicioDatos(), cA); c <= cA; c = cicloMenos(c, -1)) out.push(c); return out; };
-function mesesSel(){ const d = mesesDisp(); fCobMeses = (fCobMeses || [cicloVista()]).filter(c => d.includes(c)); if(!fCobMeses.length) fCobMeses = [d[Math.max(0, d.length - 2)]]; return fCobMeses.slice().sort((a, b) => a - b); }
+function mesesSel(){ const d = mesesDisp(); fCobMeses = (fCobMeses || ciclosVista()).filter(c => d.includes(c)); if(!fCobMeses.length) fCobMeses = [d[Math.max(0, d.length - 2)]]; return fCobMeses.slice().sort((a, b) => a - b); }
 const nomMeses = S => S.length === 1 ? nombreCiclo(S[0]) : S.length === 2 ? `${mesCorto(S[0])} y ${mesCorto(S[1])} ${String(S[1]).slice(0, 4)}` : `${S.length} meses (${mesCorto(S[0])} ${String(S[0]).slice(2, 4)} – ${mesCorto(S[S.length - 1])} ${String(S[S.length - 1]).slice(2, 4)})`;
 // suma de los indicadores de varios meses: salas-mes, solicitudes y promedios sobre todas las solicitudes
 function indicadoresPeriodo(S, us){
