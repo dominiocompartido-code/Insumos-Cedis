@@ -209,7 +209,7 @@ function pintaSelCiclo(){
   const box = $('selCicloBox'); if(!box) return; box.hidden = !verSelCiclo(); if(box.hidden) return;
   const cA = cicloActivo(), l = mesesDisp().slice().reverse(); if(!l.includes(cA)) l.unshift(cA); const S = ciclosVista();
   const html = `<details class="ms ms-hdr" id="hdrCiclo"${hcAbierto ? ' open' : ''}><summary title="Ciclo (mes de uso) que se muestra en toda la app">📅 ${esc(nomMeses(S))}</summary><div class="ms-pop">
-    <div class="ms-acc"><button type="button" class="btn btn-sm" data-hc="todos">Todos</button></div>
+    <div class="ms-acc"><button type="button" class="btn btn-sm" data-hc="todos">Todos</button><button type="button" class="btn btn-sm" data-hc="actual" title="Vuelve al ciclo en curso">Quitar selección</button></div>
     ${l.map(c => `<label class="ms-op"><input type="checkbox" data-hcmes="${c}" ${S.includes(c) ? 'checked' : ''}> ${esc(nombreCiclo(c))}${c === cA ? ' <small>(en curso)</small>' : ''}</label>`).join('')}</div></details>`;
   if(box.innerHTML !== html) box.innerHTML = html;
 }
