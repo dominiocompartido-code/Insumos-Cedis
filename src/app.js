@@ -45,7 +45,8 @@ function errMsg(e){
   if(/Failed to fetch|NetworkError/i.test(m)) return 'Sin conexión. Revise su internet e intente de nuevo.';
   return m || 'Ocurrió un error. Intente de nuevo.';
 }
-function setSync(live, txt){ $('syncDot').classList.toggle('live', live); $('syncTxt').textContent = txt; }
+// conectado: solo el punto verde (sin texto); los demás estados (Conectando…, sin conexión) sí muestran el texto
+function setSync(live, txt){ $('syncDot').classList.toggle('live', live); $('syncTxt').textContent = live ? '' : txt; $('syncDot').parentElement.title = txt; }
 const grupoDe = p => U[p.unidad_id]?.grupo_id || 'SIN';
 const almDeU = id => U[id]?.almacen || 'SCZ';
 const almNom = id => ALMS.find(a => a.id === id)?.nombre || id;
