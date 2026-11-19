@@ -309,3 +309,6 @@ update public.maestro set reemplazo = '27233' where codigo = '25645';
 
 -- 2026-11-13: materiales equivalentes (maestro.equiv). Grupos: ETIQUETA-FLUOR (28259, 25665), PANO-FRANELA (25225, 25226), MARCADOR-AZUL-NEGRO (15547, 15548).
 -- La planilla de traspaso usa el equivalente cuando no hay stock; la necesidad de compra comparte stock; al entregar se descuenta primero del código y luego del equivalente.
+
+-- 2026-11-19: public.deshacer_entrega(p_id, p_motivo): logística regresa una Entregada a Aprobada (devuelve stock por trigger).
+-- avisar_cambio no envía aviso cuando una solicitud sale de Entregada.

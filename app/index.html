@@ -2289,6 +2289,9 @@ function pintaDet(){
     if(rol.admin && p.estado === 'Aprobada') h += `<div class="row right">${reab ? '<button class="btn" id="dReabrir">Volver a revisar</button>' : ''}${usaTraspaso(p) ? `<input id="dTrasp" maxlength="40" placeholder="N° de traspaso *" value="${esc(p.nro_traspaso || '')}" style="max-width:180px" inputmode="numeric">` : ''}<input id="dRecibe" maxlength="100" placeholder="Recibido por (opcional)" style="max-width:220px"><button class="btn btn-ok" id="dEnt">Marcar entregada</button></div>`;
     else if(reab && !(esFinal() && p.estado === 'Confirmada')) h += `<div class="row right"><span class="sub" style="margin:0">¿Se confirmó o rechazó por error?</span><button class="btn" id="dReabrir">Volver a revisar</button></div>`;
   }
+  // logística de su almacén puede deshacer una entrega marcada por error (no las históricas)
+  if(p.estado === 'Entregada' && p.origen !== 'historico' && rol.admin && (!rol.almacen || rol.almacen === almDeU(p.unidad_id)))
+    h += `<div class="row right" style="margin-top:8px"><span class="sub" style="margin:0">¿La marcó como entregada por error?</span><input id="dMotDesh" maxlength="200" placeholder="Motivo *" style="max-width:220px"><button class="btn" id="dDeshacer">↩ Deshacer entrega</button></div>`;
   if(verCosto()){ const vc = valorPedido(p, false), ve = p.items_entregados ? valorPedido(p, true) : null;
     h += `<div class="valor-det"><span>${p.estado === 'Enviada' ? 'Valor de lo pedido' : 'Valor confirmado'}: <strong>${fBs(vc.total)}</strong></span>${ve ? `<span>Valor entregado: <strong>${fBs(ve.total)}</strong> <span class="chip alerta">−${fBs(vc.total - ve.total)}</span></span>` : ''}${vc.sin ? `<span class="sub" style="margin:0">${plural(vc.sin, 'insumo sin precio cargado', 'insumos sin precio cargado')}</span>` : ''}${p.precios ? `<span class="sub" style="margin:0">${esHist(p) ? 'Costos del traspaso' : 'Precios al momento de confirmar'}</span>` : ''}${presEf(U[p.unidad_id]) != null && p.tipo !== 'Apertura' && !esHist(p) ? (() => { const pr = presEf(U[p.unidad_id]), us = usadoCiclo(p.unidad_id, cicloP(p)); return `<span class="${us > pr + 0.005 ? 'chip alerta' : 'sub'}" style="margin:0">Presupuesto ${esc(nombreCiclo(cicloP(p)))}: ${fBs(pr)} · usado ${fBs(us)}</span>`; })() : ''}</div>`; }
   $('detBody').innerHTML = h;
@@ -2319,6 +2322,9 @@ $('detBody').addEventListener('click', async e => {
     dAprobF: async () => [sb.rpc('aprobar_final', {p_ids:[det.id]}), `${det.codigo} aprobada. Ya está en la lista de logística.`],
     dRechF: async () => { const m = $('dMotivoF').value.trim(); if(!m){ toast('Escriba el motivo del rechazo.'); $('dMotivoF').focus(); return null; }
       return [sb.rpc('rechazar_pedido', {p_id:det.id, p_motivo:m}), `${det.codigo} rechazada. La sucursal verá el motivo.`]; },
+    dDeshacer: async () => { const m = $('dMotDesh').value.trim(); if(!m){ toast('Escriba el motivo para deshacer la entrega.'); $('dMotDesh').focus(); return null; }
+      if(!(await confirmar(`¿Deshacer la entrega de ${det.codigo}? Vuelve a "Aprobada" (aparece otra vez en Por entregar), el stock entregado regresa al inventario y se quitan la fecha de entrega y quién recibió. El N° de traspaso se mantiene (puede cambiarlo en Por entregar).`, {si:'Deshacer entrega'}))) return null;
+      return [sb.rpc('deshacer_entrega', {p_id:det.id, p_motivo:m}), `${det.codigo} volvió a "Aprobada" y el stock regresó al inventario.`]; },
     dReabrir: async () => (await confirmar(`¿Volver ${det.codigo} a "Enviada" para revisarla de nuevo?`)) ? [sb.rpc('reabrir_pedido', {p_id:det.id}), `${det.codigo} volvió a revisión.`] : null,
   };
   if(!acciones[t.id]) return;
